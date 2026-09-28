@@ -1,0 +1,68 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mixcasete.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mixcasete.app.ktnagq"
+        minSdk 21
+        targetSdk 34
+        versionCode 2
+        versionName "1.1"
+    }
+
+    // Asegurar keystore debug si existe base64 o usar fallback estándar
+    File customKeystore = file("${rootDir}/debug.keystore")
+    if (!customKeystore.exists()) {
+        File b64Keystore = file("${rootDir}/debug.keystore.base64")
+        if (b64Keystore.exists()) {
+            try {
+                byte[] decoded = java.util.Base64.getDecoder().decode(b64Keystore.text.replaceAll("\\s+", ""))
+                customKeystore.withOutputStream { it.write(decoded) }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    signingConfigs {
+        debugConfig {
+            if (customKeystore.exists()) {
+                storeFile customKeystore
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (customKeystore.exists()) {
+                signingConfig signingConfigs.debugConfig
+            } else {
+                signingConfig signingConfigs.debug
+            }
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources {
+            excludes += 'META-INF/DEPENDENCIES'
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.24.6'
+}
+

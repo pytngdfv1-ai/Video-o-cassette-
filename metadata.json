@@ -1,0 +1,8 @@
+{
+  "name": "Video_Cassette",
+  "description": "Imported from GitHub: pytngdfv1-ai/MixCasete-actualizado",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
