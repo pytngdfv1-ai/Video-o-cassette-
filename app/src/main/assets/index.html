@@ -1932,17 +1932,17 @@
     </div>
 
     <div class="floating-tools-container" id="floatingToolsContainer">
-      <button class="floating-tools-btn" id="toolsMenuBtn" title="Herramientas y Opciones (Playlist, Buscar, TV, Pantalla Completa)">
+      <button class="floating-tools-btn" id="toolsMenuBtn" title="Opciones (Playlist, Buscar, Compartir en TV)">
         <span class="tools-btn-icon">⚙️</span>
-        <span class="tools-btn-label">HERRAMIENTAS</span>
+        <span class="tools-btn-label">OPCIONES</span>
         <span class="tools-badge" id="toolsPlBadge" style="display:none;">0</span>
       </button>
 
-      <!-- SUBMENÚ FLOTANTE CON TODAS LAS ACCIONES -->
+      <!-- SUBMENÚ FLOTANTE CON TODAS LAS OPCIONES -->
       <div class="tools-submenu" id="toolsSubmenu">
         <div class="tools-sub-header">
-          <span class="tools-sub-title">⚙️ HERRAMIENTAS · MIXCASETE</span>
-          <button class="tools-sub-close" id="toolsSubClose" title="Cerrar menú">✕</button>
+          <span class="tools-sub-title">⚙️ OPCIONES · MIXCASETE</span>
+          <button class="tools-sub-close" id="toolsSubClose" title="Cerrar opciones">✕</button>
         </div>
         <div class="tools-sub-items">
           <button class="tools-sub-item" id="plOpen" title="Abrir Mi Playlist">
@@ -1956,8 +1956,8 @@
           <button class="tools-sub-item" id="searchOpen" title="Buscar música o video en YouTube">
             <span class="sub-icon">🔍</span>
             <div class="sub-text">
-              <span class="sub-name">Buscar Música / Video</span>
-              <span class="sub-desc">Buscar en YouTube o pegar enlace</span>
+              <span class="sub-name">Buscar Música</span>
+              <span class="sub-desc">Buscar por título, artista o enlace de YouTube</span>
             </div>
             <span class="led" id="modeLed" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2ecc71;box-shadow:0 0 6px #2ecc71;"></span>
           </button>
@@ -1965,14 +1965,7 @@
             <span class="sub-icon">📺</span>
             <div class="sub-text">
               <span class="sub-name">Compartir en Tele / Smart TV</span>
-              <span class="sub-desc">Controlar desde este móvil con video en TV</span>
-            </div>
-          </button>
-          <button class="tools-sub-item" id="tvDirectFullscreenBtn" title="Ver video en pantalla completa sin controles">
-            <span class="sub-icon">🖥️</span>
-            <div class="sub-text">
-              <span class="sub-name">Pantalla Completa</span>
-              <span class="sub-desc">Modo video limpio sin controles</span>
+              <span class="sub-desc">El video se refleja en la TV y se controla desde este móvil</span>
             </div>
           </button>
         </div>
@@ -2376,7 +2369,7 @@ function handleTvSyncEvent(data) {
     if (data.action === 'play') {
       const standby = document.getElementById('tvStandbyScreen');
       if (standby) standby.style.display = 'none';
-      openCleanVideo(data.id);
+      openCleanVideo(data.id, true);
     } else if (data.action === 'pause') {
       const frame = document.getElementById('videoModalFrame');
       if (frame && frame.querySelector('iframe')) {
@@ -2386,6 +2379,11 @@ function handleTvSyncEvent(data) {
       const frame = document.getElementById('videoModalFrame');
       if (frame && frame.querySelector('iframe')) {
         frame.querySelector('iframe').contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+      }
+    } else if (data.action === 'seek') {
+      const frame = document.getElementById('videoModalFrame');
+      if (frame && frame.querySelector('iframe')) {
+        frame.querySelector('iframe').contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [data.time || 0, true] }), '*');
       }
     } else if (data.action === 'stop') {
       closeCleanVideo();
@@ -4068,7 +4066,7 @@ document.getElementById('coverMenuLyrics').onclick = () => {
     setTvViewMode('lyrics');
   }
 };
-function openCleanVideo(id) {
+function openCleanVideo(id, forced) {
   if (!id) {
     if (current && current.id) {
       id = current.id;
@@ -4080,27 +4078,33 @@ function openCleanVideo(id) {
     }
   }
   const startSec = Math.max(0, Math.floor(getCurrentPositionSeconds() || 0));
-  doPause();
 
-  if (typeof Android !== 'undefined' && typeof Android.showVideoOverlay === 'function' && typeof Android.isNative === 'function' && Android.isNative()) {
-    Android.showVideoOverlay(id);
+  // Si estamos en la pantalla de TV (?tv=1 o ?mode=tv) o forzado para proyector/pantalla externa:
+  if (isTvScreen || forced) {
+    const overlay = document.getElementById('videoOverlay');
+    const frame = document.getElementById('videoModalFrame');
+    if (overlay && frame) {
+      // 100% video limpio en la TV: sin controles, sin info de canción/canal, sin botones sobre el video
+      frame.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&enablejsapi=1&start=' + startSec + '&controls=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&disablekb=1&fs=0&showinfo=0&autohide=1&loop=1&playlist=' + id + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
+      overlay.classList.add('open');
+      if (overlay.requestFullscreen) {
+        overlay.requestFullscreen().catch(() => {});
+      } else if (overlay.webkitRequestFullscreen) {
+        overlay.webkitRequestFullscreen().catch(() => {});
+      }
+      requestScreenWakeLock();
+    }
     return;
   }
 
-  const overlay = document.getElementById('videoOverlay');
-  const frame = document.getElementById('videoModalFrame');
-  if (overlay && frame) {
-    // 100% video limpio: sin controles, sin info de canción/canal, sin botones sobre el video
-    frame.innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&enablejsapi=1&start=' + startSec + '&controls=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&disablekb=1&fs=0&showinfo=0&autohide=1&loop=1&playlist=' + id + '" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>';
-    overlay.classList.add('open');
-    if (overlay.requestFullscreen) {
-      overlay.requestFullscreen().catch(() => {});
-    } else if (overlay.webkitRequestFullscreen) {
-      overlay.webkitRequestFullscreen().catch(() => {});
-    }
-    broadcastToTv('play', { id: id, time: startSec });
-    requestScreenWakeLock();
-    flashTitle('📺 Video en pantalla completa limpio');
+  // En el móvil/celular: la pantalla del móvil es 100% reproductor de música Walkman con cassette.
+  // El video se refleja y proyecta en la TV o pantalla compartida sin tapar el cassette del móvil:
+  broadcastToTv('play', { id: id, time: startSec, title: (current && current.title) || '' });
+  showTvStatusBadge();
+  flashTitle('📺 Video transmitido a TV · Móvil en modo Walkman ✔');
+
+  if (typeof Android !== 'undefined' && typeof Android.showVideoOverlay === 'function') {
+    try { Android.showVideoOverlay(id); } catch (e) {}
   }
 }
 
@@ -5281,17 +5285,22 @@ function doStop() {
   soundFab.classList.remove('show');
 }
 function doSeek(delta) {
+  let targetTime = 0;
   if (mode === 'native') {
     nativePos = Math.max(0, nativePos + delta);
     try { Android.nativeSeek(nativePos); } catch (e) {}
+    targetTime = nativePos;
   }
   else if (mode === 'bridge') {
     embedPos = Math.max(0, embedPos + delta);
     fbSeek(embedPos);
+    targetTime = embedPos;
   }
   else if (mode === 'stream') {
     audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + delta));
+    targetTime = audio.currentTime;
   }
+  broadcastToTv('seek', { time: targetTime });
 }
 
 document.querySelectorAll('.piano-btn').forEach(btn => {

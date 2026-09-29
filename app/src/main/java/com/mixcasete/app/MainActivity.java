@@ -45,8 +45,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import android.app.NotificationManager;
+import android.app.Presentation;
+import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
+import android.view.Display;
 
 public class MainActivity extends Activity {
 
@@ -56,6 +60,105 @@ public class MainActivity extends Activity {
     private WebView playerWv;
     private FrameLayout rootLayout;
     private android.widget.TextView videoCloseBtn;
+
+    private TvPresentation tvPresentation = null;
+    private DisplayManager displayManager = null;
+    private String currentPlayingId = null;
+
+    public class TvPresentation extends Presentation {
+        private WebView tvWv;
+
+        public TvPresentation(Context outerContext, Display display) {
+            super(outerContext, display);
+        }
+
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            tvWv = new WebView(getContext());
+            config(tvWv.getSettings());
+            tvWv.setWebChromeClient(new WebChromeClient());
+            tvWv.setWebViewClient(new WebViewClient());
+            setContentView(tvWv);
+            if (currentPlayingId != null) {
+                loadTvVideo(currentPlayingId);
+            }
+        }
+
+        public void loadTvVideo(String id) {
+            if (tvWv != null && id != null) {
+                tvWv.loadUrl("https://www.youtube.com/embed/" + id
+                        + "?autoplay=1&controls=0&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&showinfo=0&autohide=1&loop=1&playlist=" + id);
+            }
+        }
+
+        public void pauseVideo() {
+            if (tvWv != null) {
+                tvWv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.pause();})()", null);
+            }
+        }
+
+        public void resumeVideo() {
+            if (tvWv != null) {
+                tvWv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.play();})()", null);
+            }
+        }
+
+        public void seekVideo(int sec) {
+            if (tvWv != null) {
+                tvWv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.currentTime=" + sec + ";})()", null);
+            }
+        }
+    }
+
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override
+        public void onDisplayAdded(int displayId) {
+            checkPresentationDisplays();
+        }
+
+        @Override
+        public void onDisplayRemoved(int displayId) {
+            checkPresentationDisplays();
+        }
+
+        @Override
+        public void onDisplayChanged(int displayId) {
+            checkPresentationDisplays();
+        }
+    };
+
+    private void checkPresentationDisplays() {
+        runOnUiThread(() -> {
+            try {
+                if (displayManager == null) return;
+                Display[] displays = displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+                if (displays != null && displays.length > 0) {
+                    Display display = displays[0];
+                    if (tvPresentation == null || tvPresentation.getDisplay().getDisplayId() != display.getDisplayId()) {
+                        if (tvPresentation != null) {
+                            try { tvPresentation.dismiss(); } catch (Exception ignored) {}
+                        }
+                        tvPresentation = new TvPresentation(MainActivity.this, display);
+                        try {
+                            tvPresentation.show();
+                            if (wv != null) {
+                                wv.evaluateJavascript("window.onTvConnected && window.onTvConnected(true)", null);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                } else {
+                    if (tvPresentation != null) {
+                        try { tvPresentation.dismiss(); } catch (Exception ignored) {}
+                        tvPresentation = null;
+                        if (wv != null) {
+                            wv.evaluateJavascript("window.onTvConnected && window.onTvConnected(false)", null);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
+    }
 
     private MediaPlayer nativePlayer = null;
     private boolean nativePrepared = false;
@@ -116,6 +219,12 @@ public class MainActivity extends Activity {
         new Thread(() -> cleanupDuplicateBackups()).start();
 
         requestAppPermissions();
+
+        displayManager = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (displayManager != null) {
+            displayManager.registerDisplayListener(displayListener, null);
+            checkPresentationDisplays();
+        }
 
         wv.loadUrl("file:///android_asset/index.html");
     }
@@ -355,30 +464,17 @@ public class MainActivity extends Activity {
         public void showVideoOverlay(final String id) {
             runOnUiThread(() -> {
                 try {
-                    // Modo pantalla completa para video 100% limpio sin controles, sin textos y sin botones
-                    FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-                    lp.gravity = android.view.Gravity.CENTER;
-                    playerWv.setLayoutParams(lp);
-                    playerWv.setAlpha(1f);
-                    playerWv.loadUrl("https://www.youtube.com/embed/" + id
-                            + "?autoplay=1&controls=0&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&showinfo=0&autohide=1&loop=1&playlist=" + id);
-
-                    // Escudo táctil transparente: sin ningún botón visible ni información sobre el video
-                    if (videoCloseBtn == null) {
-                        videoCloseBtn = new android.widget.TextView(MainActivity.this);
-                        videoCloseBtn.setBackgroundColor(0x00000000);
-                        videoCloseBtn.setText("");
-                        videoCloseBtn.setOnClickListener(v -> hideVideoOverlay());
-                        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(
-                                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-                        rootLayout.addView(videoCloseBtn, clp);
-                    } else {
-                        videoCloseBtn.setText("");
-                        videoCloseBtn.setBackgroundColor(0x00000000);
+                    currentPlayingId = id;
+                    checkPresentationDisplays();
+                    if (tvPresentation != null) {
+                        tvPresentation.loadTvVideo(id);
+                        return;
                     }
-                    videoCloseBtn.setVisibility(android.view.View.VISIBLE);
-                } catch (Exception e) {}
+                    // Si no hay pantalla secundaria conectada por Presentation, abrir el selector del sistema Cast
+                    try {
+                        startActivity(new Intent("android.settings.CAST_SETTINGS"));
+                    } catch (Exception ignored) {}
+                } catch (Exception ignored) {}
             });
         }
 
@@ -421,8 +517,14 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void playYTWithMeta(final String id, final String title, final String author) {
             lastId = id;
+            currentPlayingId = id;
             noVideoCount = 0;
             triedAlt = false;
+
+            // Reflejar el video en la pantalla externa/TV si está conectada
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.loadTvVideo(id));
+            }
 
             // Iniciar o actualizar PlaybackService en primer plano para reproducción en segundo plano
             try {
@@ -437,6 +539,9 @@ public class MainActivity extends Activity {
                     "https://www.youtube.com/watch?v=" + id + "&playsinline=1"));
         }
         @JavascriptInterface public void resumeYT() {
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.resumeVideo());
+            }
             try {
                 Intent si = new Intent(MainActivity.this, PlaybackService.class);
                 si.putExtra(PlaybackService.EXTRA_CMD, "play");
@@ -445,6 +550,9 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> { tap(); enforce(); });
         }
         @JavascriptInterface public void pauseYT() {
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.pauseVideo());
+            }
             try {
                 Intent si = new Intent(MainActivity.this, PlaybackService.class);
                 si.putExtra(PlaybackService.EXTRA_CMD, "pause");
@@ -453,6 +561,9 @@ public class MainActivity extends Activity {
             js("(function(){var v=document.querySelector('video');if(v)v.pause();})();");
         }
         @JavascriptInterface public void stopYT()  {
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.pauseVideo());
+            }
             try {
                 Intent si = new Intent(MainActivity.this, PlaybackService.class);
                 si.putExtra(PlaybackService.EXTRA_CMD, "stop");
@@ -460,7 +571,12 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
             runOnUiThread(() -> { polling = false; playerWv.loadUrl("about:blank"); });
         }
-        @JavascriptInterface public void seekYT(final int sec) { js("(function(){var v=document.querySelector('video');if(v)v.currentTime=" + sec + ";})();"); }
+        @JavascriptInterface public void seekYT(final int sec) {
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.seekVideo(sec));
+            }
+            js("(function(){var v=document.querySelector('video');if(v)v.currentTime=" + sec + ";})();");
+        }
         @JavascriptInterface public void unmuteYT() { runOnUiThread(() -> { tap(); enforce(); tap(); enforce(); }); }
 
         @JavascriptInterface
@@ -1224,6 +1340,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (displayManager != null) {
+            try { displayManager.unregisterDisplayListener(displayListener); } catch (Exception ignored) {}
+        }
+        if (tvPresentation != null) {
+            try { tvPresentation.dismiss(); } catch (Exception ignored) {}
+            tvPresentation = null;
+        }
         cleanupAndExit();
     }
 }
