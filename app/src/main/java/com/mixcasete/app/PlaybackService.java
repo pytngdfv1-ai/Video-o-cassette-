@@ -226,28 +226,70 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
         updateMetadata();
 
         try {
+            // Verificar si tenemos este audio ya en la caché local del dispositivo
+            String playSource = url;
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                try {
+                    String cacheFileName = "mc_stream_" + Integer.toHexString(url.hashCode()) + ".m4a";
+                    java.io.File cacheFile = new java.io.File(getCacheDir(), cacheFileName);
+                    if (cacheFile.exists() && cacheFile.length() > 65536) {
+                        playSource = cacheFile.getAbsolutePath();
+                    } else {
+                        // Iniciar descarga en segundo plano para caché local progresiva sin bloquear inicio
+                        new Thread(() -> {
+                            try {
+                                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                                conn.setConnectTimeout(8000);
+                                conn.setReadTimeout(30000);
+                                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                                if (conn.getResponseCode() == 200) {
+                                    java.io.File tempFile = new java.io.File(getCacheDir(), cacheFileName + ".tmp");
+                                    java.io.InputStream is = conn.getInputStream();
+                                    java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile);
+                                    byte[] buf = new byte[32768];
+                                    int len;
+                                    while ((len = is.read(buf)) > 0) {
+                                        fos.write(buf, 0, len);
+                                    }
+                                    fos.flush();
+                                    fos.close();
+                                    is.close();
+                                    if (tempFile.length() > 65536) {
+                                        tempFile.renameTo(cacheFile);
+                                    } else {
+                                        tempFile.delete();
+                                    }
+                                }
+                            } catch (Exception ignored) {}
+                        }).start();
+                    }
+                } catch (Exception ignored) {}
+            }
+
             player = new MediaPlayer();
             player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
             player.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build());
-            if (url.startsWith("http://") || url.startsWith("https://")) {
+
+            if (playSource.startsWith("http://") || playSource.startsWith("https://")) {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-                headers.put("Referer", "https://www.youtube.com/");
-                player.setDataSource(this, Uri.parse(url), headers);
-            } else if (url.startsWith("file://")) {
-                player.setDataSource(this, Uri.parse(url));
+                // NOTA: No enviar Referer a googlevideo porque activa limitación de tasa (rate-limit / throttling)
+                player.setDataSource(this, Uri.parse(playSource), headers);
+            } else if (playSource.startsWith("file://")) {
+                player.setDataSource(this, Uri.parse(playSource));
             } else {
-                player.setDataSource(url);
+                player.setDataSource(playSource);
             }
+
             player.setOnPreparedListener(this);
             player.setOnCompletionListener(this);
             player.setOnErrorListener(this);
             player.prepareAsync();
         } catch (Exception e) {
-            notifyJs("error");
+            handleDecodeError(1, -1);
         }
     }
 
@@ -269,9 +311,33 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
 
     @Override
     public boolean onError(MediaPlayer mp, int what, int extra) {
-        notifyJs("error");
-        updateNotif(false);
+        handleDecodeError(what, extra);
         return true;
+    }
+
+    private void handleDecodeError(int what, int extra) {
+        String cause = "Error de decodificación";
+        if (extra == MediaPlayer.MEDIA_ERROR_IO) {
+            cause = "Fallo de red o conexión";
+        } else if (extra == MediaPlayer.MEDIA_ERROR_MALFORMED) {
+            cause = "Stream corrupto o malformado";
+        } else if (extra == MediaPlayer.MEDIA_ERROR_UNSUPPORTED) {
+            cause = "Códec de audio no compatible";
+        } else if (extra == MediaPlayer.MEDIA_ERROR_TIMED_OUT) {
+            cause = "Tiempo de espera agotado";
+        } else if (what == MediaPlayer.MEDIA_ERROR_SERVER_DIED) {
+            cause = "Servidor multimedia desconectado";
+        }
+
+        final String toastMsg = "⚠ Problema al decodificar audio: " + cause + ". Pasando a la siguiente pista...";
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                android.widget.Toast.makeText(getApplicationContext(), toastMsg, android.widget.Toast.LENGTH_LONG).show();
+            } catch (Exception ignored) {}
+        });
+
+        notifyJs("error_decode:" + extra);
+        updateNotif(false);
     }
 
     private void stopPlayback() {
@@ -359,7 +425,10 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
             try {
                 WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
                 if (wm != null) {
-                    wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "mixcasete:wifi");
+                    int mode = (Build.VERSION.SDK_INT >= 29)
+                            ? WifiManager.WIFI_MODE_FULL
+                            : WifiManager.WIFI_MODE_FULL_HIGH_PERF;
+                    wifiLock = wm.createWifiLock(mode, "mixcasete:wifi");
                 }
             } catch (Exception ignored) {}
         }

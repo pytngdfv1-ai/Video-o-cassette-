@@ -1324,7 +1324,7 @@
       width: 100vw !important;
       height: 100vh !important;
       max-height: 100vh !important;
-      padding: 4px 8px !important;
+      padding: 6px 12px !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
@@ -1334,67 +1334,179 @@
       width: 100% !important;
       max-width: 100% !important;
       height: 100% !important;
-      max-height: 100vh !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
     }
     .device {
-      width: min(calc((100vh - 12px) * 1.56 + 24px), 98vw) !important;
-      max-width: 98vw !important;
-      height: calc(100vh - 10px) !important;
-      max-height: calc(100vh - 10px) !important;
-      padding: 6px 10px 8px 10px !important;
+      position: relative !important;
+      height: min(94vh, 440px) !important;
+      width: auto !important;
+      aspect-ratio: 1.62 / 1 !important;
+      max-width: 96vw !important;
+      margin: auto !important;
+      padding: 6px 12px 8px 12px !important;
       display: flex !important;
       flex-direction: column !important;
-      justify-content: center !important;
-      align-items: center !important;
-      position: relative !important;
+      justify-content: space-between !important;
+      border-radius: 20px !important;
+      box-shadow:
+        inset 0 2px 3px rgba(255,255,255,0.9),
+        inset 0 -3px 6px rgba(0,0,0,0.18),
+        0 16px 40px rgba(0,0,0,0.7),
+        0 0 0 2px #241f19,
+        0 0 0 4px #c9b999 !important;
     }
     .floating-top-bar {
-      position: absolute !important;
-      top: 10px !important;
-      right: 14px !important;
-      z-index: 100 !important;
-      width: auto !important;
-      margin: 0 !important;
+      position: relative !important;
+      top: auto !important;
+      right: auto !important;
+      width: 100% !important;
+      height: 26px !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      margin-bottom: 3px !important;
+      z-index: 120 !important;
     }
-    /* El casete en horizontal mantiene su relación de aspecto estándar exacta 1.56 sin deformarse jamás y maximiza el tamaño de pantalla */
+    .floating-tools-btn {
+      padding: 4px 10px !important;
+      font-size: 10px !important;
+      gap: 5px !important;
+    }
+    .tools-btn-label {
+      font-size: 9.5px !important;
+    }
+    .tv-status-badge {
+      padding: 2px 7px !important;
+      font-size: 8.5px !important;
+    }
     .cassette-window {
-      width: min(calc((100vh - 22px) * 1.56), 96vw) !important;
-      height: calc(100% - 4px) !important;
-      max-height: calc(100vh - 22px) !important;
-      aspect-ratio: 1.56 / 1 !important;
-      margin: auto !important;
-      padding: 6px 10px !important;
-      flex-shrink: 1 !important;
+      position: relative !important;
+      width: 100% !important;
+      flex: 1 !important;
+      min-height: 0 !important;
+      aspect-ratio: auto !important;
+      margin: 0 !important;
+      padding: 6px 8px !important;
+      border-radius: 10px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-between !important;
+      overflow: hidden !important;
+    }
+    .corner-screw {
+      width: 14px !important;
+      height: 14px !important;
+    }
+    .cs-tl { top: 5px !important; left: 5px !important; }
+    .cs-tr { top: 5px !important; right: 5px !important; }
+    .cs-bl { bottom: 5px !important; left: 5px !important; }
+    .cs-br { bottom: 5px !important; right: 5px !important; }
+    .cassette-shell {
+      position: relative !important;
+      width: 100% !important;
+      height: 100% !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-between !important;
+      overflow: hidden !important;
+      border-radius: 4px !important;
     }
     .cassette-label {
-      padding: 6px 18px 5px 18px !important;
+      padding: 4px 14px 3px 14px !important;
+      flex-shrink: 0 !important;
     }
     .track-title {
-      font-size: clamp(14px, 2.8vh, 20px) !important;
-      padding-right: 90px !important;
+      font-size: clamp(11px, 2.5vh, 15px) !important;
+      padding-right: 12px !important;
     }
     .cassette-body {
-      padding: 8px 12px 6px 12px !important;
+      flex: 1 !important;
+      min-height: 0 !important;
+      padding: 4px 8px 3px 8px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-around !important;
+    }
+    .cassette-content {
+      gap: 6px !important;
+    }
+    .side-label-a {
+      font-size: clamp(14px, 2.8vh, 18px) !important;
+      padding: 2px 6px !important;
+    }
+    .reel-capsule {
+      padding: 4px 8px !important;
     }
     .reel {
-      width: clamp(42px, 8.5vh, 60px) !important;
-      height: clamp(42px, 8.5vh, 60px) !important;
+      width: clamp(32px, 7vh, 44px) !important;
+      height: clamp(32px, 7vh, 44px) !important;
     }
     .tape-window {
-      width: clamp(78px, 16vh, 115px) !important;
-      height: clamp(22px, 4.6vh, 32px) !important;
+      width: clamp(64px, 14vh, 88px) !important;
+      height: clamp(16px, 3.6vh, 22px) !important;
+    }
+    .tape-counter {
+      width: clamp(64px, 14vh, 88px) !important;
+    }
+    .side-label-min .num {
+      font-size: clamp(15px, 3vh, 19px) !important;
+    }
+    .side-label-min .unit {
+      font-size: 8.5px !important;
+    }
+    .cassette-bottom-row {
+      margin-top: 2px !important;
+      gap: 6px !important;
+      padding-bottom: 0 !important;
+    }
+    .brand-dot {
+      width: 14px !important;
+      height: 14px !important;
+    }
+    .cassette-brand {
+      font-size: clamp(10px, 2vh, 12.5px) !important;
+    }
+    .cassette-lower {
+      margin: 0 8px !important;
+      padding: 4px 18px 3px 18px !important;
+      flex-shrink: 0 !important;
+    }
+    .lower-hole {
+      width: 13px !important;
+      height: 13px !important;
+    }
+    .lower-hole.square {
+      width: 11px !important;
+      height: 11px !important;
+    }
+    .lower-screw {
+      width: 10px !important;
+      height: 10px !important;
+      top: 5px !important;
     }
     .buttons-area {
-      bottom: 5px !important;
-      left: 8px !important;
-      right: 8px !important;
-      padding: 3px 6px 4px 6px !important;
+      position: absolute !important;
+      bottom: 3px !important;
+      left: 6px !important;
+      right: 6px !important;
+      padding: 2px 4px 3px 4px !important;
+      border-radius: 6px !important;
+      background: rgba(16, 12, 9, 0.55) !important;
+    }
+    .button-labels {
+      display: none !important;
+    }
+    .button-row-main {
+      gap: 4px !important;
     }
     .piano-btn {
-      height: clamp(30px, 6.5vh, 42px) !important;
+      height: clamp(26px, 5.8vh, 34px) !important;
+      padding: 0 !important;
+    }
+    .piano-btn .btn-icon {
+      font-size: clamp(11px, 2.4vh, 14px) !important;
     }
     .bottom-bar {
       display: none !important;
@@ -2426,6 +2538,7 @@ function ensureSilentAudio() {
 }
 
 function startSilentKeepAlive() {
+  if (typeof HAS_BRIDGE !== 'undefined' && HAS_BRIDGE) return; // En Android nativo, PlaybackService maneja el servicio en primer plano y Wakelock nativo. Evitar audio silencioso concurrente en WebView.
   try {
     ensureSilentAudio();
     if (silentAudioEl && silentAudioEl.paused) {
@@ -3053,14 +3166,9 @@ if (savedViewMode === 'classic') {
   if (tvModeBtn) tvModeBtn.classList.remove('active');
 }
 
-// Adaptación automática y fluida al girar el dispositivo
+// Adaptación al girar el dispositivo: mantener reproductor de música cassette con proporciones perfectas
 function checkDeviceOrientation() {
-  const isLandscape = window.innerWidth > window.innerHeight;
-  if (isLandscape) {
-    document.body.classList.remove('classic-mode');
-    document.body.classList.add('tv-split-active');
-    if (tvModeBtn) tvModeBtn.classList.add('active');
-  }
+  // Mantener vista de casete intacta sin forzar división de TV al girar
 }
 window.addEventListener('resize', checkDeviceOrientation);
 window.addEventListener('orientationchange', checkDeviceOrientation);
@@ -3708,7 +3816,13 @@ window.onNativePlayerEvent = function (event) {
   if (event === 'playing') { setReels(true); startNativeClock(); debug('🔊 SONANDO (nativo)'); }
   else if (event === 'paused') { setReels(false); stopNativeClock(); }
   else if (event === 'ended') { setReels(false); stopNativeClock(); autoNext(); }
-  else if (event === 'error') { debug('⚠ Error de audio nativo'); setReels(false); stopNativeClock(); }
+  else if (event === 'error' || (typeof event === 'string' && event.startsWith('error'))) {
+    debug('⚠ Error de audio nativo: ' + event);
+    setReels(false);
+    stopNativeClock();
+    flashTitle('⚠ Problema de decodificación · Siguiente pista');
+    setTimeout(() => { autoNext(); }, 1400);
+  }
   else if (event === 'btn_play') { doPlay(); }
   else if (event === 'btn_pause') { doPause(); }
   else if (event === 'btn_next') { doNextTrack(); }

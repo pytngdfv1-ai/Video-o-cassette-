@@ -275,6 +275,8 @@ public class MainActivity extends Activity {
     private synchronized void startNativePlayback(String url) {
         releaseNativePlayer();
         try {
+            if (playerWv != null) playerWv.loadUrl("about:blank");
+            stopPoll();
             nativePlayer = new MediaPlayer();
             nativePlayer.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -283,7 +285,6 @@ public class MainActivity extends Activity {
             if (url.startsWith("http://") || url.startsWith("https://")) {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("User-Agent", UA);
-                headers.put("Referer", "https://www.youtube.com/");
                 nativePlayer.setDataSource(this, Uri.parse(url), headers);
             } else if (url.startsWith("file://")) {
                 nativePlayer.setDataSource(this, Uri.parse(url));
@@ -299,7 +300,20 @@ public class MainActivity extends Activity {
                 onPlayerEvent("ended");
             });
             nativePlayer.setOnErrorListener((mp, what, extra) -> {
-                onPlayerEvent("error");
+                String cause = "Error de decodificación";
+                if (extra == MediaPlayer.MEDIA_ERROR_IO) cause = "Fallo de conexión o red";
+                else if (extra == MediaPlayer.MEDIA_ERROR_MALFORMED) cause = "Stream corrupto o malformado";
+                else if (extra == MediaPlayer.MEDIA_ERROR_UNSUPPORTED) cause = "Códec de audio no compatible";
+                else if (extra == MediaPlayer.MEDIA_ERROR_TIMED_OUT) cause = "Tiempo de espera agotado";
+                else if (what == MediaPlayer.MEDIA_ERROR_SERVER_DIED) cause = "Servidor multimedia desconectado";
+
+                final String toastMsg = "⚠ Problema al decodificar audio: " + cause + ". Pasando a la siguiente pista...";
+                runOnUiThread(() -> {
+                    try {
+                        android.widget.Toast.makeText(MainActivity.this, toastMsg, android.widget.Toast.LENGTH_LONG).show();
+                    } catch (Exception ignored) {}
+                });
+                onPlayerEvent("error_decode:" + extra);
                 return true;
             });
             nativePlayer.prepareAsync();
@@ -382,6 +396,13 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void nativePlay(final String url, final String title) {
+            // Detener cualquier sondeo y limpiar el WebView de respaldo para evitar consumo excesivo de memoria
+            runOnUiThread(() -> {
+                stopPoll();
+                if (playerWv != null) {
+                    playerWv.loadUrl("about:blank");
+                }
+            });
             try {
                 Intent si = new Intent(MainActivity.this, PlaybackService.class);
                 si.putExtra(PlaybackService.EXTRA_CMD, "play_url");
@@ -536,7 +557,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
 
             runOnUiThread(() -> playerWv.loadUrl(
-                    "https://www.youtube.com/watch?v=" + id + "&playsinline=1"));
+                    "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0&controls=0&modestbranding=1&enablejsapi=1"));
         }
         @JavascriptInterface public void resumeYT() {
             if (tvPresentation != null) {
@@ -934,9 +955,24 @@ public class MainActivity extends Activity {
                     "https://www.youtube.com/watch?v=" + id);
             List<AudioStream> audios = info.getAudioStreams();
             AudioStream best = null;
+            // 1. Priorizar stream audio/mp4 (m4a / AAC) ya que se decodifica por hardware sin entrecortes en Android MediaPlayer
             for (AudioStream a : audios) {
                 if (a == null || a.getContent() == null) continue;
-                if (best == null || a.getAverageBitrate() > best.getAverageBitrate()) best = a;
+                String fmt = a.getFormat() != null ? a.getFormat().getName().toLowerCase() : "";
+                if (fmt.contains("m4a") || fmt.contains("mp4")) {
+                    if (best == null || a.getAverageBitrate() > best.getAverageBitrate()) {
+                        best = a;
+                    }
+                }
+            }
+            // 2. Si no hay m4a disponible, tomar el mejor stream alternativo
+            if (best == null) {
+                for (AudioStream a : audios) {
+                    if (a == null || a.getContent() == null) continue;
+                    if (best == null || a.getAverageBitrate() > best.getAverageBitrate()) {
+                        best = a;
+                    }
+                }
             }
             if (best == null) return null;
             JSONObject out = new JSONObject();
