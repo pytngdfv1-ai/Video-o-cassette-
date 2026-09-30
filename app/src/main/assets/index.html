@@ -367,7 +367,11 @@
     box-shadow: inset 0 3px 6px rgba(0,0,0,0.6), inset 0 -1px 2px rgba(255,255,255,0.08), 0 1px 1px rgba(255,255,255,0.25);
   }
 
-  .reel { width: 50px; height: 50px; flex-shrink: 0; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5)); }
+  .reel {
+    width: 50px; height: 50px; flex-shrink: 0;
+    will-change: transform;
+    transform: translateZ(0);
+  }
   .reel.playing { animation: spin 1.4s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -491,10 +495,8 @@
     z-index: 25;
     margin-top: 0;
     padding: 3px 6px 4px 6px;
-    background: rgba(16, 12, 9, 0.44);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: linear-gradient(180deg, rgba(28, 22, 17, 0.88) 0%, rgba(14, 11, 8, 0.94) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 8px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.15);
     pointer-events: auto;
@@ -1324,11 +1326,12 @@
       width: 100vw !important;
       height: 100vh !important;
       max-height: 100vh !important;
-      padding: 6px 12px !important;
+      padding: 4px 8px !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
       box-sizing: border-box !important;
+      overflow: hidden !important;
     }
     .split-col-player {
       width: 100% !important;
@@ -1340,69 +1343,73 @@
     }
     .device {
       position: relative !important;
-      height: min(94vh, 440px) !important;
+      height: auto !important;
       width: auto !important;
-      aspect-ratio: 1.62 / 1 !important;
+      max-height: calc(100vh - 8px) !important;
       max-width: 96vw !important;
       margin: auto !important;
-      padding: 6px 12px 8px 12px !important;
+      padding: clamp(4px, 1vh, 8px) clamp(8px, 1.5vw, 14px) clamp(6px, 1.2vh, 10px) clamp(8px, 1.5vw, 14px) !important;
       display: flex !important;
       flex-direction: column !important;
-      justify-content: space-between !important;
-      border-radius: 20px !important;
+      align-items: center !important;
+      justify-content: center !important;
+      border-radius: clamp(14px, 2.8vh, 22px) !important;
       box-shadow:
         inset 0 2px 3px rgba(255,255,255,0.9),
         inset 0 -3px 6px rgba(0,0,0,0.18),
         0 16px 40px rgba(0,0,0,0.7),
         0 0 0 2px #241f19,
         0 0 0 4px #c9b999 !important;
+      overflow: hidden !important;
     }
     .floating-top-bar {
       position: relative !important;
       top: auto !important;
       right: auto !important;
       width: 100% !important;
-      height: 26px !important;
+      height: clamp(20px, 4.5vh, 24px) !important;
       display: flex !important;
       justify-content: space-between !important;
       align-items: center !important;
-      margin-bottom: 3px !important;
+      margin-bottom: 2px !important;
       z-index: 120 !important;
     }
     .floating-tools-btn {
-      padding: 4px 10px !important;
+      padding: 3px 9px !important;
       font-size: 10px !important;
       gap: 5px !important;
     }
     .tools-btn-label {
-      font-size: 9.5px !important;
+      font-size: 9px !important;
     }
     .tv-status-badge {
       padding: 2px 7px !important;
-      font-size: 8.5px !important;
+      font-size: 8px !important;
     }
     .cassette-window {
       position: relative !important;
-      width: 100% !important;
-      flex: 1 !important;
-      min-height: 0 !important;
-      aspect-ratio: auto !important;
-      margin: 0 !important;
-      padding: 6px 8px !important;
-      border-radius: 10px !important;
+      aspect-ratio: 1.56 / 1 !important;
+      height: min(calc(100vh - 54px), calc(92vw / 1.56)) !important;
+      width: calc(min(calc(100vh - 54px), calc(92vw / 1.56)) * 1.56) !important;
+      max-height: calc(100vh - 54px) !important;
+      max-width: 92vw !important;
+      margin: 0 auto !important;
+      padding: clamp(5px, 1.2vh, 9px) clamp(7px, 1.6vw, 11px) !important;
+      border-radius: 12px !important;
       display: flex !important;
       flex-direction: column !important;
       justify-content: space-between !important;
       overflow: hidden !important;
+      box-sizing: border-box !important;
     }
     .corner-screw {
-      width: 14px !important;
-      height: 14px !important;
+      width: clamp(11px, 2.5vh, 14px) !important;
+      height: clamp(11px, 2.5vh, 14px) !important;
     }
-    .cs-tl { top: 5px !important; left: 5px !important; }
-    .cs-tr { top: 5px !important; right: 5px !important; }
-    .cs-bl { bottom: 5px !important; left: 5px !important; }
-    .cs-br { bottom: 5px !important; right: 5px !important; }
+    .cs-tl { top: 4px !important; left: 4px !important; }
+    .cs-tr { top: 4px !important; right: 4px !important; }
+    .cs-bl { bottom: 4px !important; left: 4px !important; }
+    .cs-br { bottom: 4px !important; right: 4px !important; }
     .cassette-shell {
       position: relative !important;
       width: 100% !important;
@@ -1414,86 +1421,91 @@
       border-radius: 4px !important;
     }
     .cassette-label {
-      padding: 4px 14px 3px 14px !important;
+      padding: clamp(3px, 0.9vh, 6px) clamp(10px, 2.5vw, 18px) !important;
       flex-shrink: 0 !important;
     }
     .track-title {
-      font-size: clamp(11px, 2.5vh, 15px) !important;
-      padding-right: 12px !important;
+      font-size: clamp(11px, 2.6vh, 15px) !important;
+      line-height: 1.2 !important;
+      padding-right: 10px !important;
     }
     .cassette-body {
       flex: 1 !important;
       min-height: 0 !important;
-      padding: 4px 8px 3px 8px !important;
+      padding: clamp(2px, 0.6vh, 4px) clamp(4px, 1.2vw, 8px) clamp(28px, 6.2vh, 38px) clamp(4px, 1.2vw, 8px) !important;
       display: flex !important;
       flex-direction: column !important;
       justify-content: space-around !important;
     }
     .cassette-content {
-      gap: 6px !important;
+      gap: clamp(4px, 1vw, 8px) !important;
+      align-items: center !important;
     }
     .side-label-a {
-      font-size: clamp(14px, 2.8vh, 18px) !important;
-      padding: 2px 6px !important;
+      font-size: clamp(13px, 3vh, 18px) !important;
+      padding: 2px 5px !important;
     }
     .reel-capsule {
-      padding: 4px 8px !important;
+      padding: clamp(3px, 0.8vh, 6px) clamp(6px, 1.5vw, 10px) !important;
     }
     .reel {
-      width: clamp(32px, 7vh, 44px) !important;
-      height: clamp(32px, 7vh, 44px) !important;
+      width: clamp(28px, 7.5vh, 44px) !important;
+      height: clamp(28px, 7.5vh, 44px) !important;
+      will-change: transform !important;
+      transform: translateZ(0) !important;
     }
     .tape-window {
-      width: clamp(64px, 14vh, 88px) !important;
-      height: clamp(16px, 3.6vh, 22px) !important;
+      width: clamp(56px, 15vh, 88px) !important;
+      height: clamp(14px, 3.8vh, 22px) !important;
     }
     .tape-counter {
-      width: clamp(64px, 14vh, 88px) !important;
+      width: clamp(56px, 15vh, 88px) !important;
     }
     .side-label-min .num {
-      font-size: clamp(15px, 3vh, 19px) !important;
+      font-size: clamp(13px, 3.2vh, 19px) !important;
     }
     .side-label-min .unit {
-      font-size: 8.5px !important;
+      font-size: clamp(7.5px, 1.6vh, 9px) !important;
     }
     .cassette-bottom-row {
-      margin-top: 2px !important;
-      gap: 6px !important;
+      margin-top: 1px !important;
+      gap: 5px !important;
       padding-bottom: 0 !important;
     }
     .brand-dot {
-      width: 14px !important;
-      height: 14px !important;
+      width: clamp(12px, 2.5vh, 15px) !important;
+      height: clamp(12px, 2.5vh, 15px) !important;
     }
     .cassette-brand {
-      font-size: clamp(10px, 2vh, 12.5px) !important;
+      font-size: clamp(9.5px, 2vh, 12px) !important;
     }
     .cassette-lower {
-      margin: 0 8px !important;
-      padding: 4px 18px 3px 18px !important;
+      margin: 0 clamp(6px, 1.5vw, 12px) !important;
+      padding: clamp(3px, 0.8vh, 6px) clamp(14px, 3vw, 24px) !important;
       flex-shrink: 0 !important;
     }
     .lower-hole {
-      width: 13px !important;
-      height: 13px !important;
+      width: clamp(11px, 2.4vh, 14px) !important;
+      height: clamp(11px, 2.4vh, 14px) !important;
     }
     .lower-hole.square {
-      width: 11px !important;
-      height: 11px !important;
+      width: clamp(9px, 2.1vh, 12px) !important;
+      height: clamp(9px, 2.1vh, 12px) !important;
     }
     .lower-screw {
-      width: 10px !important;
-      height: 10px !important;
-      top: 5px !important;
+      width: clamp(8px, 1.8vh, 11px) !important;
+      height: clamp(8px, 1.8vh, 11px) !important;
+      top: 4px !important;
     }
     .buttons-area {
       position: absolute !important;
-      bottom: 3px !important;
-      left: 6px !important;
-      right: 6px !important;
+      bottom: 2px !important;
+      left: clamp(4px, 1vw, 8px) !important;
+      right: clamp(4px, 1vw, 8px) !important;
       padding: 2px 4px 3px 4px !important;
       border-radius: 6px !important;
-      background: rgba(16, 12, 9, 0.55) !important;
+      background: linear-gradient(180deg, rgba(28, 22, 17, 0.90) 0%, rgba(14, 11, 8, 0.96) 100%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.16) !important;
     }
     .button-labels {
       display: none !important;
@@ -1502,11 +1514,11 @@
       gap: 4px !important;
     }
     .piano-btn {
-      height: clamp(26px, 5.8vh, 34px) !important;
+      height: clamp(24px, 5.6vh, 34px) !important;
       padding: 0 !important;
     }
     .piano-btn .btn-icon {
-      font-size: clamp(11px, 2.4vh, 14px) !important;
+      font-size: clamp(10px, 2.3vh, 14px) !important;
     }
     .bottom-bar {
       display: none !important;
@@ -3045,48 +3057,59 @@ function syncTvPanelUI(track, isPlaying) {
   }
 }
 
-// Actualización continua de barra de progreso y VU meter de TV
+// Actualización eficiente y optimizada de barra de progreso y VU meter de TV
+let lastMediaSessionUpdate = 0;
 function updateTvPlaybackTick() {
-  const curTime = getCurrentPositionSeconds();
-  const durTime = getCurrentDurationSeconds();
-
-  // Actualizar tiempos en TV
-  const elTimeElapsed = document.getElementById('tvTimeElapsed');
-  const elTimeTotal = document.getElementById('tvTimeTotal');
-  const elProgressFill = document.getElementById('tvProgressFill');
-
-  if (elTimeElapsed) elTimeElapsed.textContent = fmt(Math.floor(curTime));
-  if (elTimeTotal) elTimeTotal.textContent = fmt(Math.floor(durTime));
-  if (elProgressFill && durTime > 0) {
-    const pct = Math.min(100, Math.max(0, (curTime / durTime) * 100));
-    elProgressFill.style.width = pct + '%';
-  }
-
-  // Sincronizar Karaoke
-  syncKaraokeToTime(curTime);
-
-  // Animar barras de VU meter en TV si está reproduciendo
   const isPlaying = (mode === 'stream' && !audio.paused) || (mode === 'bridge') || (mode === 'native');
-  const vuBars = document.querySelectorAll('#tvVuBars .vub');
-  if (vuBars.length > 0) {
-    vuBars.forEach((bar, idx) => {
-      if (isPlaying) {
-        // simulación orgánica de espectro de frecuencias
-        const wave = Math.sin((Date.now() / 150) + (idx * 0.7));
-        const rnd = Math.random() * 0.3;
-        const h = Math.max(3, Math.min(28, (wave * 0.5 + 0.5 + rnd) * 28));
-        bar.style.height = h + 'px';
-      } else {
-        bar.style.height = '3px';
+  const isTvSplitActive = document.body.classList.contains('tv-split-active');
+
+  // Si no está reproduciendo ni el panel TV está activo, no realizar cálculos pesados de DOM
+  if (!isPlaying && !isTvSplitActive) return;
+
+  const curTime = getCurrentPositionSeconds();
+
+  // Solo actualizar el DOM del panel TV si está visible en pantalla
+  if (isTvSplitActive) {
+    const durTime = getCurrentDurationSeconds();
+    const elTimeElapsed = document.getElementById('tvTimeElapsed');
+    const elTimeTotal = document.getElementById('tvTimeTotal');
+    const elProgressFill = document.getElementById('tvProgressFill');
+
+    if (elTimeElapsed) elTimeElapsed.textContent = fmt(Math.floor(curTime));
+    if (elTimeTotal) elTimeTotal.textContent = fmt(Math.floor(durTime));
+    if (elProgressFill && durTime > 0) {
+      const pct = Math.min(100, Math.max(0, (curTime / durTime) * 100));
+      elProgressFill.style.width = pct + '%';
+    }
+
+    // Sincronizar Karaoke solo si está activo
+    if (karaokeState && karaokeState.showKaraoke) {
+      syncKaraokeToTime(curTime);
+    }
+
+    // Animar barras de VU meter en TV si está reproduciendo
+    if (isPlaying) {
+      const vuBars = document.querySelectorAll('#tvVuBars .vub');
+      if (vuBars.length > 0) {
+        vuBars.forEach((bar, idx) => {
+          const wave = Math.sin((Date.now() / 150) + (idx * 0.7));
+          const rnd = Math.random() * 0.3;
+          const h = Math.max(3, Math.min(28, (wave * 0.5 + 0.5 + rnd) * 28));
+          bar.style.height = h + 'px';
+        });
       }
-    });
+    }
   }
 
-  // MediaSession position refresh
-  updateMediaSessionPositionState();
+  // MediaSession position refresh: throttled para no saturar IPC ni hilo principal
+  const now = Date.now();
+  if (isPlaying && now - lastMediaSessionUpdate > 2000) {
+    lastMediaSessionUpdate = now;
+    updateMediaSessionPositionState();
+  }
 }
 
-let tvTickInterval = setInterval(updateTvPlaybackTick, 60);
+let tvTickInterval = setInterval(updateTvPlaybackTick, 250);
 
 // Click en la barra de progreso de TV para adelantar/retroceder
 const tvProgressTrack = document.getElementById('tvProgressTrack');
@@ -3166,13 +3189,16 @@ if (savedViewMode === 'classic') {
   if (tvModeBtn) tvModeBtn.classList.remove('active');
 }
 
-// Adaptación al girar el dispositivo: mantener reproductor de música cassette con proporciones perfectas
-function checkDeviceOrientation() {
-  // Mantener vista de casete intacta sin forzar división de TV al girar
+// Adaptación al girar o cambiar tamaño de ventana: manejo pasivo sin recálculos pesados
+let resizeDebounceRaf = null;
+function handleWindowResizePassive() {
+  if (resizeDebounceRaf) return;
+  resizeDebounceRaf = requestAnimationFrame(() => {
+    resizeDebounceRaf = null;
+  });
 }
-window.addEventListener('resize', checkDeviceOrientation);
-window.addEventListener('orientationchange', checkDeviceOrientation);
-checkDeviceOrientation();
+window.addEventListener('resize', handleWindowResizePassive, { passive: true });
+window.addEventListener('orientationchange', handleWindowResizePassive, { passive: true });
 
 // Pantalla completa limpia para modo tele
 const optTvFullscreenClean = document.getElementById('optTvFullscreenClean');
@@ -3195,6 +3221,17 @@ function showTvStatusBadge() {
   const badge = document.getElementById('tvStatusBadge');
   if (badge) badge.style.display = 'inline-flex';
 }
+
+window.onTvConnected = function(connected) {
+  if (connected) {
+    showTvStatusBadge();
+    flashTitle('📺 Conectado a Smart TV · Audio en TV');
+  } else {
+    const badge = document.getElementById('tvStatusBadge');
+    if (badge) badge.style.display = 'none';
+    flashTitle('📱 Audio activo en el móvil');
+  }
+};
 
 // Abrir pantalla de TV en segunda ventana (Smart TV / Monitor secundario)
 const optTvSecondScreen = document.getElementById('optTvSecondScreen');

@@ -142,6 +142,12 @@ public class MainActivity extends Activity {
                         tvPresentation = new TvPresentation(MainActivity.this, display);
                         try {
                             tvPresentation.show();
+                            // El video y audio salen por la TV; pausar reproductor nativo del móvil para no duplicar audio
+                            try {
+                                Intent si = new Intent(MainActivity.this, PlaybackService.class);
+                                si.putExtra(PlaybackService.EXTRA_CMD, "pause");
+                                PlaybackService.start(MainActivity.this, si);
+                            } catch (Exception ignored) {}
                             if (wv != null) {
                                 wv.evaluateJavascript("window.onTvConnected && window.onTvConnected(true)", null);
                             }
@@ -151,6 +157,12 @@ public class MainActivity extends Activity {
                     if (tvPresentation != null) {
                         try { tvPresentation.dismiss(); } catch (Exception ignored) {}
                         tvPresentation = null;
+                        // Al desconectar de la TV, reactivar el audio directamente en el teléfono
+                        try {
+                            Intent si = new Intent(MainActivity.this, PlaybackService.class);
+                            si.putExtra(PlaybackService.EXTRA_CMD, "play");
+                            PlaybackService.start(MainActivity.this, si);
+                        } catch (Exception ignored) {}
                         if (wv != null) {
                             wv.evaluateJavascript("window.onTvConnected && window.onTvConnected(false)", null);
                         }
@@ -489,6 +501,11 @@ public class MainActivity extends Activity {
                     checkPresentationDisplays();
                     if (tvPresentation != null) {
                         tvPresentation.loadTvVideo(id);
+                        try {
+                            Intent si = new Intent(MainActivity.this, PlaybackService.class);
+                            si.putExtra(PlaybackService.EXTRA_CMD, "pause");
+                            PlaybackService.start(MainActivity.this, si);
+                        } catch (Exception ignored) {}
                         return;
                     }
                     // Si no hay pantalla secundaria conectada por Presentation, abrir el selector del sistema Cast

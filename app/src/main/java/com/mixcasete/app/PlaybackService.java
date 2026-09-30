@@ -54,6 +54,7 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
     private String currentTitle = "Mix.Casete";
     private String currentArtist = "";
     private boolean prepared = false;
+    private AudioBufferManager bufferManager;
 
     private static volatile PlaybackService sInstance;
 
@@ -90,6 +91,7 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
     public void onCreate() {
         super.onCreate();
         sInstance = this;
+        bufferManager = new AudioBufferManager(this);
         crearCanal();
         setupMediaSession();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -226,44 +228,17 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
         updateMetadata();
 
         try {
-            // Verificar si tenemos este audio ya en la caché local del dispositivo
+            // Buffer y caché gestionado para reproducción sin entrecortes y consumo de memoria controlado
             String playSource = url;
             if (url.startsWith("http://") || url.startsWith("https://")) {
-                try {
-                    String cacheFileName = "mc_stream_" + Integer.toHexString(url.hashCode()) + ".m4a";
-                    java.io.File cacheFile = new java.io.File(getCacheDir(), cacheFileName);
-                    if (cacheFile.exists() && cacheFile.length() > 65536) {
-                        playSource = cacheFile.getAbsolutePath();
+                if (bufferManager != null) {
+                    java.io.File cached = bufferManager.getCompletedBufferFile(url);
+                    if (cached != null) {
+                        playSource = cached.getAbsolutePath();
                     } else {
-                        // Iniciar descarga en segundo plano para caché local progresiva sin bloquear inicio
-                        new Thread(() -> {
-                            try {
-                                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-                                conn.setConnectTimeout(8000);
-                                conn.setReadTimeout(30000);
-                                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-                                if (conn.getResponseCode() == 200) {
-                                    java.io.File tempFile = new java.io.File(getCacheDir(), cacheFileName + ".tmp");
-                                    java.io.InputStream is = conn.getInputStream();
-                                    java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile);
-                                    byte[] buf = new byte[32768];
-                                    int len;
-                                    while ((len = is.read(buf)) > 0) {
-                                        fos.write(buf, 0, len);
-                                    }
-                                    fos.flush();
-                                    fos.close();
-                                    is.close();
-                                    if (tempFile.length() > 65536) {
-                                        tempFile.renameTo(cacheFile);
-                                    } else {
-                                        tempFile.delete();
-                                    }
-                                }
-                            } catch (Exception ignored) {}
-                        }).start();
+                        bufferManager.startBuffering(url);
                     }
-                } catch (Exception ignored) {}
+                }
             }
 
             player = new MediaPlayer();
@@ -284,6 +259,10 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
                 player.setDataSource(playSource);
             }
 
+            player.setOnBufferingUpdateListener((mp, percent) -> {
+                // Progreso de buffer nativo
+            });
+            player.setOnInfoListener((mp, what, extra) -> true);
             player.setOnPreparedListener(this);
             player.setOnCompletionListener(this);
             player.setOnErrorListener(this);
@@ -342,6 +321,9 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
 
     private void stopPlayback() {
         isBridgeMode = false;
+        if (bufferManager != null) {
+            bufferManager.cancelBuffering();
+        }
         releasePlayer();
         releaseLocks();
         releaseAudioFocus();
@@ -409,9 +391,14 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null) {
                 wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mixcasete:play");
+                wl.setReferenceCounted(false);
             }
         }
-        if (wl != null && !wl.isHeld()) wl.acquire(4 * 60 * 60 * 1000L);
+        if (wl != null && !wl.isHeld()) {
+            try {
+                wl.acquire();
+            } catch (Exception ignored) {}
+        }
     }
 
     private void releaseWakeLock() {
@@ -429,6 +416,7 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
                             ? WifiManager.WIFI_MODE_FULL
                             : WifiManager.WIFI_MODE_FULL_HIGH_PERF;
                     wifiLock = wm.createWifiLock(mode, "mixcasete:wifi");
+                    wifiLock.setReferenceCounted(false);
                 }
             } catch (Exception ignored) {}
         }
@@ -544,5 +532,112 @@ public class PlaybackService extends Service implements MediaPlayer.OnPreparedLi
         stopPlayback();
         if (mediaSession != null) mediaSession.release();
         super.onDestroy();
+    }
+
+    /**
+     * Gestor de buffer y almacenamiento en caché para streams de audio.
+     * Descarga de forma progresiva en segundo plano con control de memoria (límite LRU 60 MB),
+     * previniendo problemas de falta de memoria (OOM) y entrecortes en el audio.
+     */
+    public static class AudioBufferManager {
+        private static final long MAX_CACHE_BYTES = 60 * 1024 * 1024L; // 60 MB máximo de buffer en disco
+        private final java.io.File bufferDir;
+        private Thread currentBufferThread;
+        private volatile boolean cancelCurrentBuffer = false;
+
+        public AudioBufferManager(android.content.Context context) {
+            bufferDir = new java.io.File(context.getCacheDir(), "audio_buffer");
+            if (!bufferDir.exists()) bufferDir.mkdirs();
+        }
+
+        public synchronized java.io.File getCompletedBufferFile(String url) {
+            if (url == null) return null;
+            String key = hashKey(url);
+            java.io.File completed = new java.io.File(bufferDir, key + ".m4a");
+            if (completed.exists() && completed.length() > 65536) {
+                completed.setLastModified(System.currentTimeMillis());
+                return completed;
+            }
+            return null;
+        }
+
+        public synchronized void startBuffering(String url) {
+            if (url == null || !url.startsWith("http")) return;
+            cancelBuffering();
+
+            cancelCurrentBuffer = false;
+            final String key = hashKey(url);
+            final java.io.File target = new java.io.File(bufferDir, key + ".m4a");
+            if (target.exists() && target.length() > 65536) return;
+
+            currentBufferThread = new Thread(() -> {
+                java.net.HttpURLConnection conn = null;
+                java.io.InputStream is = null;
+                java.io.FileOutputStream fos = null;
+                java.io.File temp = new java.io.File(bufferDir, key + ".part");
+                try {
+                    conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(35000);
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                    int code = conn.getResponseCode();
+                    if (code == 200 || code == 206) {
+                        is = conn.getInputStream();
+                        fos = new java.io.FileOutputStream(temp);
+                        byte[] buf = new byte[32768];
+                        int n;
+                        while (!cancelCurrentBuffer && (n = is.read(buf)) > 0) {
+                            fos.write(buf, 0, n);
+                        }
+                        fos.flush();
+                        fos.close();
+                        fos = null;
+                        if (!cancelCurrentBuffer && temp.length() > 65536) {
+                            if (target.exists()) target.delete();
+                            temp.renameTo(target);
+                            pruneCacheIfNeeded();
+                        } else {
+                            temp.delete();
+                        }
+                    }
+                } catch (Exception ignored) {
+                    temp.delete();
+                } finally {
+                    try { if (fos != null) fos.close(); } catch (Exception ignored) {}
+                    try { if (is != null) is.close(); } catch (Exception ignored) {}
+                    if (conn != null) conn.disconnect();
+                }
+            });
+            currentBufferThread.start();
+        }
+
+        public synchronized void cancelBuffering() {
+            cancelCurrentBuffer = true;
+            if (currentBufferThread != null && currentBufferThread.isAlive()) {
+                currentBufferThread.interrupt();
+            }
+            currentBufferThread = null;
+        }
+
+        private void pruneCacheIfNeeded() {
+            try {
+                java.io.File[] files = bufferDir.listFiles((d, name) -> name.endsWith(".m4a"));
+                if (files == null || files.length == 0) return;
+                long total = 0;
+                for (java.io.File f : files) total += f.length();
+                if (total > MAX_CACHE_BYTES) {
+                    java.util.Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+                    for (java.io.File f : files) {
+                        if (total <= MAX_CACHE_BYTES * 0.7) break;
+                        long len = f.length();
+                        if (f.delete()) total -= len;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        private String hashKey(String url) {
+            return "st_" + Integer.toHexString(url.hashCode());
+        }
     }
 }
