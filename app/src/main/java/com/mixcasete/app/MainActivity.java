@@ -2,23 +2,37 @@ package com.mixcasete.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.ContentValues;
+import android.app.Dialog;
+import android.app.NotificationManager;
+import android.content.ClipData;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.database.Cursor;
+import android.hardware.display.DisplayManager;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.os.SystemClock;
-import android.provider.MediaStore;
-import android.view.MotionEvent;
+import android.provider.OpenableColumns;
+import android.view.Display;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -27,15 +41,10 @@ import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.downloader.Downloader;
 import org.schabi.newpipe.extractor.downloader.Request;
 import org.schabi.newpipe.extractor.downloader.Response;
-import org.schabi.newpipe.extractor.exceptions.ReCaptchaException;
 import org.schabi.newpipe.extractor.stream.AudioStream;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -44,72 +53,21 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import android.app.NotificationManager;
-import android.app.Presentation;
-import android.content.Context;
-import android.hardware.display.DisplayManager;
-import android.media.AudioAttributes;
-import android.media.MediaPlayer;
-import android.view.Display;
 
 public class MainActivity extends Activity {
 
     public static WeakReference<MainActivity> self;
+    private static final int REQUEST_CODE_PICK_AUDIO = 701;
+    private static final int REQUEST_CODE_PERMISSIONS = 501;
 
     private WebView wv;
-    private WebView playerWv;
     private FrameLayout rootLayout;
-    private android.widget.TextView videoCloseBtn;
-
     private TvPresentation tvPresentation = null;
     private DisplayManager displayManager = null;
     private String currentPlayingId = null;
+    private Dialog loginDialog = null;
 
-    public class TvPresentation extends Presentation {
-        private WebView tvWv;
-
-        public TvPresentation(Context outerContext, Display display) {
-            super(outerContext, display);
-        }
-
-        @Override
-        protected void onCreate(Bundle savedInstanceState) {
-            super.onCreate(savedInstanceState);
-            tvWv = new WebView(getContext());
-            config(tvWv.getSettings());
-            tvWv.setWebChromeClient(new WebChromeClient());
-            tvWv.setWebViewClient(new WebViewClient());
-            setContentView(tvWv);
-            if (currentPlayingId != null) {
-                loadTvVideo(currentPlayingId);
-            }
-        }
-
-        public void loadTvVideo(String id) {
-            if (tvWv != null && id != null) {
-                tvWv.loadUrl("https://www.youtube.com/embed/" + id
-                        + "?autoplay=1&controls=0&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&showinfo=0&autohide=1&loop=1&playlist=" + id);
-            }
-        }
-
-        public void pauseVideo() {
-            if (tvWv != null) {
-                tvWv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.pause();})()", null);
-            }
-        }
-
-        public void resumeVideo() {
-            if (tvWv != null) {
-                tvWv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.play();})()", null);
-            }
-        }
-
-        public void seekVideo(int sec) {
-            if (tvWv != null) {
-                tvWv.evaluateJavascript("(function(){var v=document.querySelector('video');if(v)v.currentTime=" + sec + ";})()", null);
-            }
-        }
-    }
+    private static final String UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
     private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
         @Override
@@ -128,6 +86,157 @@ public class MainActivity extends Activity {
         }
     };
 
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        self = new WeakReference<>(this);
+
+        initNewPipe();
+        applyImmersiveMode();
+
+        try {
+            PlaybackService.stop(this);
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancelAll();
+        } catch (Exception ignored) {}
+
+        rootLayout = new FrameLayout(this);
+        rootLayout.setBackgroundColor(0xFF141210);
+
+        wv = new WebView(this);
+        configWebSettings(wv.getSettings());
+        wv.setWebViewClient(new WebViewClient());
+        wv.setWebChromeClient(new WebChromeClient());
+        wv.addJavascriptInterface(new Bridge(), "Android");
+        rootLayout.addView(wv, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        setContentView(rootLayout);
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+
+        requestAppPermissions();
+
+        displayManager = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (displayManager != null) {
+            displayManager.registerDisplayListener(displayListener, null);
+            checkPresentationDisplays();
+        }
+
+        wv.loadUrl("file:///android_asset/index.html");
+    }
+
+    private void applyImmersiveMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            );
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getWindow().getAttributes().layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            applyImmersiveMode();
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        applyImmersiveMode();
+        if (wv != null) {
+            String orientation = (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) ? "landscape" : "portrait";
+            wv.evaluateJavascript("window.onOrientationChanged && window.onOrientationChanged('" + orientation + "')", null);
+        }
+    }
+
+    private void initNewPipe() {
+        try {
+            NewPipe.init(new Downloader() {
+                @Override
+                public Response execute(Request request) throws Exception {
+                    URL url = new URL(request.url());
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod(request.httpMethod());
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(10000);
+                    conn.setRequestProperty("User-Agent", UA);
+
+                    for (Map.Entry<String, List<String>> pair : request.headers().entrySet()) {
+                        for (String val : pair.getValue()) {
+                            conn.setRequestProperty(pair.getKey(), val);
+                        }
+                    }
+
+                    int code = conn.getResponseCode();
+                    InputStream is = (code >= 400) ? conn.getErrorStream() : conn.getInputStream();
+                    byte[] data = new byte[0];
+                    if (is != null) {
+                        java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+                        data = bos.toByteArray();
+                        is.close();
+                    }
+                    return new Response(code, conn.getResponseMessage(), conn.getHeaderFields(), new String(data, StandardCharsets.UTF_8), null);
+                }
+            });
+        } catch (Exception ignored) {}
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void configWebSettings(WebSettings s) {
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setUserAgentString(UA);
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+    }
+
+    private void requestAppPermissions() {
+        List<String> perms = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                perms.add(android.Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }
+        if (Build.VERSION.SDK_INT <= 28) {
+            if (checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                perms.add(android.Manifest.permission.READ_EXTERNAL_STORAGE);
+            }
+        }
+        if (!perms.isEmpty()) {
+            requestPermissions(perms.toArray(new String[0]), REQUEST_CODE_PERMISSIONS);
+        }
+    }
+
     private void checkPresentationDisplays() {
         runOnUiThread(() -> {
             try {
@@ -142,12 +251,26 @@ public class MainActivity extends Activity {
                         tvPresentation = new TvPresentation(MainActivity.this, display);
                         try {
                             tvPresentation.show();
+                            // Mantener pantalla encendida mientras se proyecta
+                            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
                             // El video y audio salen por la TV; pausar reproductor nativo del móvil para no duplicar audio
                             try {
                                 Intent si = new Intent(MainActivity.this, PlaybackService.class);
                                 si.putExtra(PlaybackService.EXTRA_CMD, "pause");
                                 PlaybackService.start(MainActivity.this, si);
                             } catch (Exception ignored) {}
+
+                            if (currentPlayingId != null) {
+                                int curSec = 0;
+                                PlaybackService ps = PlaybackService.getInstance();
+                                if (ps != null) {
+                                    int posMs = ps.getPlayerPosition();
+                                    if (posMs > 0) curSec = posMs / 1000;
+                                }
+                                tvPresentation.loadTvVideo(currentPlayingId, curSec);
+                            }
+
                             if (wv != null) {
                                 wv.evaluateJavascript("window.onTvConnected && window.onTvConnected(true)", null);
                             }
@@ -157,12 +280,15 @@ public class MainActivity extends Activity {
                     if (tvPresentation != null) {
                         try { tvPresentation.dismiss(); } catch (Exception ignored) {}
                         tvPresentation = null;
+                        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
                         // Al desconectar de la TV, reactivar el audio directamente en el teléfono
                         try {
                             Intent si = new Intent(MainActivity.this, PlaybackService.class);
                             si.putExtra(PlaybackService.EXTRA_CMD, "play");
                             PlaybackService.start(MainActivity.this, si);
                         } catch (Exception ignored) {}
+
                         if (wv != null) {
                             wv.evaluateJavascript("window.onTvConnected && window.onTvConnected(false)", null);
                         }
@@ -172,258 +298,115 @@ public class MainActivity extends Activity {
         });
     }
 
-    private MediaPlayer nativePlayer = null;
-    private boolean nativePrepared = false;
-
-    private boolean polling = false;
-    private boolean isForeground = false;
-    private int noVideoCount = 0;
-    private boolean triedAlt = false;
-    private String lastId = null;
-    private boolean npInit = false;
-    private String pendingExport = null;
-
-    private static final int REQ_OPEN = 777;
-    private static final int REQ_WRITE = 42;
-
-    private static final String UA =
-            "Mozilla/5.0 (Linux; Android 11; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-
-    @SuppressLint("SetJavaScriptEnabled")
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        try {
-            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-        } catch (Exception ignored) {}
-        self = new WeakReference<>(this);
-
-        // Cancelar y limpiar cualquier servicio de notificación previo para que no quede reproductor flotante
-        try {
-            PlaybackService.stop(this);
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (nm != null) nm.cancelAll();
-        } catch (Exception ignored) {}
-
-        FrameLayout root = new FrameLayout(this);
-        rootLayout = root;
-
-        wv = new WebView(this);
-        config(wv.getSettings());
-        wv.setWebViewClient(new WebViewClient());
-        wv.setWebChromeClient(new WebChromeClient());
-        wv.addJavascriptInterface(new Bridge(), "Android");
-        root.addView(wv, new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT));
-
-        playerWv = new WebView(this);
-        config(playerWv.getSettings());
-        playerWv.setWebViewClient(new PlayerClient());
-        playerWv.setWebChromeClient(new WebChromeClient());
-        root.addView(playerWv, new FrameLayout.LayoutParams(1, 1));
-        playerWv.setAlpha(0f);
-
-        setContentView(root);
-        setVolumeControlStream(AudioManager.STREAM_MUSIC);
-
-        /* Limpia respaldos duplicados de la playlist al abrir (una sola vez en fondo) */
-        new Thread(() -> cleanupDuplicateBackups()).start();
-
-        requestAppPermissions();
-
-        displayManager = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
-        if (displayManager != null) {
-            displayManager.registerDisplayListener(displayListener, null);
-            checkPresentationDisplays();
-        }
-
-        wv.loadUrl("file:///android_asset/index.html");
-    }
-
-    /** Permisos necesarios para notificaciones en segundo plano y almacenamiento de playlist */
-    private void requestAppPermissions() {
-        List<String> perms = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                perms.add(android.Manifest.permission.POST_NOTIFICATIONS);
-            }
-        }
-        if (Build.VERSION.SDK_INT <= 28) {
-            if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                perms.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE);
-            }
-            if (checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                perms.add(android.Manifest.permission.READ_EXTERNAL_STORAGE);
-            }
-        }
-        if (!perms.isEmpty()) {
-            requestPermissions(perms.toArray(new String[0]), 501);
-        }
-    }
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private void config(WebSettings s) {
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowFileAccessFromFileURLs(true);
-        s.setAllowUniversalAccessFromFileURLs(true);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
-    }
-
     public void onPlayerEvent(String event) {
-        runOnUiThread(() -> wv.evaluateJavascript(
-                "window.onNativePlayerEvent && window.onNativePlayerEvent('" + event + "')", null));
-    }
-
-    private synchronized void startNativePlayback(String url) {
-        releaseNativePlayer();
-        try {
-            if (playerWv != null) playerWv.loadUrl("about:blank");
-            stopPoll();
-            nativePlayer = new MediaPlayer();
-            nativePlayer.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build());
-            if (url.startsWith("http://") || url.startsWith("https://")) {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("User-Agent", UA);
-                nativePlayer.setDataSource(this, Uri.parse(url), headers);
-            } else if (url.startsWith("file://")) {
-                nativePlayer.setDataSource(this, Uri.parse(url));
-            } else {
-                nativePlayer.setDataSource(url);
-            }
-            nativePlayer.setOnPreparedListener(mp -> {
-                nativePrepared = true;
-                mp.start();
-                onPlayerEvent("playing");
-            });
-            nativePlayer.setOnCompletionListener(mp -> {
-                onPlayerEvent("ended");
-            });
-            nativePlayer.setOnErrorListener((mp, what, extra) -> {
-                String cause = "Error de decodificación";
-                if (extra == MediaPlayer.MEDIA_ERROR_IO) cause = "Fallo de conexión o red";
-                else if (extra == MediaPlayer.MEDIA_ERROR_MALFORMED) cause = "Stream corrupto o malformado";
-                else if (extra == MediaPlayer.MEDIA_ERROR_UNSUPPORTED) cause = "Códec de audio no compatible";
-                else if (extra == MediaPlayer.MEDIA_ERROR_TIMED_OUT) cause = "Tiempo de espera agotado";
-                else if (what == MediaPlayer.MEDIA_ERROR_SERVER_DIED) cause = "Servidor multimedia desconectado";
-
-                final String toastMsg = "⚠ Problema al decodificar audio: " + cause + ". Pasando a la siguiente pista...";
-                runOnUiThread(() -> {
-                    try {
-                        android.widget.Toast.makeText(MainActivity.this, toastMsg, android.widget.Toast.LENGTH_LONG).show();
-                    } catch (Exception ignored) {}
-                });
-                onPlayerEvent("error_decode:" + extra);
-                return true;
-            });
-            nativePlayer.prepareAsync();
-        } catch (Exception e) {
-            onPlayerEvent("error");
-        }
-    }
-
-    private synchronized void pauseNativePlayer() {
-        if (nativePlayer != null && nativePrepared) {
-            try {
-                if (nativePlayer.isPlaying()) nativePlayer.pause();
-                onPlayerEvent("paused");
-            } catch (Exception ignored) {}
-        }
-    }
-
-    private synchronized void resumeNativePlayer() {
-        if (nativePlayer != null && nativePrepared) {
-            try {
-                nativePlayer.start();
-                onPlayerEvent("playing");
-            } catch (Exception ignored) {}
-        }
-    }
-
-    private synchronized void stopNativePlayer() {
-        releaseNativePlayer();
-        onPlayerEvent("paused");
-    }
-
-    private synchronized void seekNativePlayer(int sec) {
-        if (nativePlayer != null && nativePrepared) {
-            try {
-                nativePlayer.seekTo(sec * 1000);
-            } catch (Exception ignored) {}
-        }
-    }
-
-    public void hideVideoOverlay() {
         runOnUiThread(() -> {
-            try {
-                stopPoll();
-                if (playerWv != null) {
-                    playerWv.loadUrl("about:blank");
-                    playerWv.setAlpha(0f);
-                    playerWv.setLayoutParams(new FrameLayout.LayoutParams(1, 1));
-                }
-                if (videoCloseBtn != null) videoCloseBtn.setVisibility(android.view.View.GONE);
-                if (wv != null) {
-                    wv.evaluateJavascript(
-                        "window.onVideoOverlayClosed && window.onVideoOverlayClosed()", null);
-                }
-            } catch (Exception e) {}
+            if (wv != null) {
+                wv.evaluateJavascript("window.onNativePlayerEvent && window.onNativePlayerEvent('" + event + "')", null);
+            }
         });
     }
 
-    private synchronized void releaseNativePlayer() {
-        if (nativePlayer != null) {
-            try {
-                if (nativePlayer.isPlaying()) nativePlayer.stop();
-                nativePlayer.release();
-            } catch (Exception ignored) {}
-            nativePlayer = null;
-            nativePrepared = false;
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_CODE_PICK_AUDIO && resultCode == RESULT_OK && data != null) {
+            handleLocalAudioResult(data);
         }
     }
 
-    /* ================= PUENTE JS ↔ JAVA ================= */
+    private void handleLocalAudioResult(Intent data) {
+        try {
+            JSONArray arr = new JSONArray();
+            if (data.getClipData() != null) {
+                ClipData clip = data.getClipData();
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    Uri uri = clip.getItemAt(i).getUri();
+                    JSONObject track = resolveAudioUriMeta(uri);
+                    if (track != null) arr.put(track);
+                }
+            } else if (data.getData() != null) {
+                Uri uri = data.getData();
+                JSONObject track = resolveAudioUriMeta(uri);
+                if (track != null) arr.put(track);
+            }
+
+            if (wv != null && arr.length() > 0) {
+                wv.evaluateJavascript("window.onLocalAudioLoaded && window.onLocalAudioLoaded(" + arr.toString() + ")", null);
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "Error al cargar archivos locales: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private JSONObject resolveAudioUriMeta(Uri uri) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                try {
+                    getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (Exception ignored) {}
+            }
+
+            String name = "Pista Local";
+            long size = 0;
+            Cursor cursor = getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null) {
+                int nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                int sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (cursor.moveToFirst()) {
+                    if (nameIdx >= 0) name = cursor.getString(nameIdx);
+                    if (sizeIdx >= 0) size = cursor.getLong(sizeIdx);
+                }
+                cursor.close();
+            }
+
+            JSONObject obj = new JSONObject();
+            obj.put("id", "local_" + Math.abs(uri.hashCode()));
+            obj.put("title", name.replaceAll("\\.[a-zA-Z0-9]+$", ""));
+            obj.put("author", "Archivo del Dispositivo");
+            obj.put("url", uri.toString());
+            obj.put("isLocal", true);
+            obj.put("size", size);
+            return obj;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (displayManager != null) {
+            try { displayManager.unregisterDisplayListener(displayListener); } catch (Exception ignored) {}
+        }
+        if (tvPresentation != null) {
+            try { tvPresentation.dismiss(); } catch (Exception ignored) {}
+            tvPresentation = null;
+        }
+        if (loginDialog != null && loginDialog.isShowing()) {
+            try { loginDialog.dismiss(); } catch (Exception ignored) {}
+        }
+        super.onDestroy();
+    }
+
+    /* ============================================================
+       PUENTE JAVASCRIPT ("Android")
+       ============================================================ */
     public class Bridge {
 
         @JavascriptInterface
-        public void openBrowser(final String url) {
-            runOnUiThread(() -> {
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                } catch (Exception e) {}
-            });
+        public boolean isNative() {
+            return true;
         }
 
         @JavascriptInterface
-        public void nativePlay(final String url, final String title) {
-            // Detener cualquier sondeo y limpiar el WebView de respaldo para evitar consumo excesivo de memoria
-            runOnUiThread(() -> {
-                stopPoll();
-                if (playerWv != null) {
-                    playerWv.loadUrl("about:blank");
-                }
-            });
+        public void nativePlay(final String url, final String title, final String artist) {
             try {
                 Intent si = new Intent(MainActivity.this, PlaybackService.class);
                 si.putExtra(PlaybackService.EXTRA_CMD, "play_url");
                 si.putExtra(PlaybackService.EXTRA_URL, url);
                 si.putExtra(PlaybackService.EXTRA_TITLE, title != null ? title : "Mix.Casete");
+                si.putExtra(PlaybackService.EXTRA_ARTIST, artist != null ? artist : "");
                 PlaybackService.start(MainActivity.this, si);
-            } catch (Exception ignored) {
-                runOnUiThread(() -> startNativePlayback(url));
-            }
+            } catch (Exception ignored) {}
         }
 
         @JavascriptInterface
@@ -433,7 +416,9 @@ public class MainActivity extends Activity {
                 si.putExtra(PlaybackService.EXTRA_CMD, "pause");
                 PlaybackService.start(MainActivity.this, si);
             } catch (Exception ignored) {}
-            runOnUiThread(() -> pauseNativePlayer());
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.pauseVideo());
+            }
         }
 
         @JavascriptInterface
@@ -443,7 +428,9 @@ public class MainActivity extends Activity {
                 si.putExtra(PlaybackService.EXTRA_CMD, "play");
                 PlaybackService.start(MainActivity.this, si);
             } catch (Exception ignored) {}
-            runOnUiThread(() -> resumeNativePlayer());
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.resumeVideo());
+            }
         }
 
         @JavascriptInterface
@@ -453,7 +440,9 @@ public class MainActivity extends Activity {
                 si.putExtra(PlaybackService.EXTRA_CMD, "stop");
                 PlaybackService.start(MainActivity.this, si);
             } catch (Exception ignored) {}
-            runOnUiThread(() -> stopNativePlayer());
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.showBlankScreen());
+            }
         }
 
         @JavascriptInterface
@@ -464,61 +453,190 @@ public class MainActivity extends Activity {
                 si.putExtra(PlaybackService.EXTRA_CMD, "seek");
                 PlaybackService.start(MainActivity.this, si);
             } catch (Exception ignored) {}
-            runOnUiThread(() -> seekNativePlayer(sec));
-        }
-
-        @JavascriptInterface
-        public boolean isNative() {
-            return true;
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.seekVideo(sec));
+            }
         }
 
         @JavascriptInterface
         public int getNativePositionMs() {
-            try {
-                if (nativePlayer != null && nativePrepared) return nativePlayer.getCurrentPosition();
-            } catch (Exception ignored) {}
-            return -1;
+            PlaybackService ps = PlaybackService.getInstance();
+            return (ps != null) ? ps.getPlayerPosition() : -1;
         }
 
         @JavascriptInterface
         public int getNativeDurationMs() {
-            try {
-                if (nativePlayer != null && nativePrepared) return nativePlayer.getDuration();
-            } catch (Exception ignored) {}
-            return -1;
+            PlaybackService ps = PlaybackService.getInstance();
+            return (ps != null) ? ps.getPlayerDuration() : -1;
         }
 
         @JavascriptInterface
-        public void exitApp() {
-            runOnUiThread(() -> cleanupAndExit());
-        }
-
-        @JavascriptInterface
-        public void showVideoOverlay(final String id) {
+        public void showVideoOverlay(final String id, final int startSec) {
             runOnUiThread(() -> {
-                try {
-                    currentPlayingId = id;
-                    checkPresentationDisplays();
-                    if (tvPresentation != null) {
-                        tvPresentation.loadTvVideo(id);
-                        try {
-                            Intent si = new Intent(MainActivity.this, PlaybackService.class);
-                            si.putExtra(PlaybackService.EXTRA_CMD, "pause");
-                            PlaybackService.start(MainActivity.this, si);
-                        } catch (Exception ignored) {}
-                        return;
-                    }
-                    // Si no hay pantalla secundaria conectada por Presentation, abrir el selector del sistema Cast
+                currentPlayingId = id;
+                checkPresentationDisplays();
+                if (tvPresentation != null) {
+                    tvPresentation.loadTvVideo(id, startSec);
                     try {
-                        startActivity(new Intent("android.settings.CAST_SETTINGS"));
+                        Intent si = new Intent(MainActivity.this, PlaybackService.class);
+                        si.putExtra(PlaybackService.EXTRA_CMD, "pause");
+                        PlaybackService.start(MainActivity.this, si);
                     } catch (Exception ignored) {}
-                } catch (Exception ignored) {}
+                    return;
+                }
+                // Si no hay pantalla secundaria física/Presentation conectada, abrir el selector del sistema Cast
+                try {
+                    startActivity(new Intent("android.settings.CAST_SETTINGS"));
+                } catch (Exception ignored) {
+                    Toast.makeText(MainActivity.this, "Conecta una pantalla externa o activa Transmitir en Ajustes", Toast.LENGTH_SHORT).show();
+                }
             });
         }
 
         @JavascriptInterface
         public void hideVideoOverlay() {
-            MainActivity.this.hideVideoOverlay();
+            runOnUiThread(() -> {
+                if (tvPresentation != null) {
+                    tvPresentation.showBlankScreen();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void syncTvDrift(final int currentSec) {
+            if (tvPresentation != null) {
+                runOnUiThread(() -> tvPresentation.syncDrift(currentSec));
+            }
+        }
+
+        @JavascriptInterface
+        public boolean isTvConnected() {
+            return (tvPresentation != null);
+        }
+
+        @JavascriptInterface
+        public void openDocumentPicker() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("audio/*");
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    startActivityForResult(intent, REQUEST_CODE_PICK_AUDIO);
+                } catch (Exception e) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                        intent.setType("audio/*");
+                        startActivityForResult(intent, REQUEST_CODE_PICK_AUDIO);
+                    } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openLoginModal() {
+            runOnUiThread(() -> {
+                try {
+                    if (loginDialog != null && loginDialog.isShowing()) return;
+                    loginDialog = new Dialog(MainActivity.this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+
+                    LinearLayout layout = new LinearLayout(MainActivity.this);
+                    layout.setOrientation(LinearLayout.VERTICAL);
+                    layout.setBackgroundColor(0xFF141210);
+
+                    RelativeLayout topBar = new RelativeLayout(MainActivity.this);
+                    topBar.setBackgroundColor(0xFF241f19);
+                    topBar.setPadding(24, 24, 24, 24);
+
+                    TextView title = new TextView(MainActivity.this);
+                    title.setText("Iniciar sesión en YouTube (Opcional)");
+                    title.setTextColor(0xFFFFFFFF);
+                    title.setTextSize(15);
+                    RelativeLayout.LayoutParams lpTitle = new RelativeLayout.LayoutParams(
+                            RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                    lpTitle.addRule(RelativeLayout.ALIGN_PARENT_LEFT);
+                    lpTitle.addRule(RelativeLayout.CENTER_VERTICAL);
+                    topBar.addView(title, lpTitle);
+
+                    TextView closeBtn = new TextView(MainActivity.this);
+                    closeBtn.setText("✕ CERRAR");
+                    closeBtn.setTextColor(0xFFF5A623);
+                    closeBtn.setTextSize(14);
+                    closeBtn.setPadding(16, 8, 16, 8);
+                    RelativeLayout.LayoutParams lpClose = new RelativeLayout.LayoutParams(
+                            RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+                    lpClose.addRule(RelativeLayout.ALIGN_PARENT_RIGHT);
+                    lpClose.addRule(RelativeLayout.CENTER_VERTICAL);
+                    closeBtn.setOnClickListener(v -> {
+                        CookieManager.getInstance().flush();
+                        loginDialog.dismiss();
+                        if (wv != null) {
+                            wv.evaluateJavascript("window.onLoginComplete && window.onLoginComplete()", null);
+                        }
+                    });
+                    topBar.addView(closeBtn, lpClose);
+                    layout.addView(topBar);
+
+                    WebView loginWv = new WebView(MainActivity.this);
+                    WebSettings s = loginWv.getSettings();
+                    s.setJavaScriptEnabled(true);
+                    s.setDomStorageEnabled(true);
+                    s.setDatabaseEnabled(true);
+                    s.setUserAgentString(UA);
+
+                    CookieManager cm = CookieManager.getInstance();
+                    cm.setAcceptCookie(true);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        cm.setAcceptThirdPartyCookies(loginWv, true);
+                    }
+
+                    loginWv.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public void onPageFinished(WebView view, String url) {
+                            cm.flush();
+                        }
+                    });
+
+                    loginWv.loadUrl("https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&continue=https%3A%2F%2Fm.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue");
+
+                    layout.addView(loginWv, new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+
+                    loginDialog.setContentView(layout);
+                    loginDialog.show();
+                } catch (Exception ignored) {}
+            });
+        }
+
+        @JavascriptInterface
+        public void fetchNewPipeStream(final String youtubeId) {
+            new Thread(() -> {
+                try {
+                    StreamInfo streamInfo = StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=" + youtubeId);
+                    List<AudioStream> audioStreams = streamInfo.getAudioStreams();
+                    String bestAudioUrl = null;
+                    if (audioStreams != null && !audioStreams.isEmpty()) {
+                        bestAudioUrl = audioStreams.get(0).getContent();
+                    }
+                    final String urlResult = bestAudioUrl;
+                    runOnUiThread(() -> {
+                        if (wv != null) {
+                            if (urlResult != null && !urlResult.isEmpty()) {
+                                wv.evaluateJavascript("window.onNewPipeStreamLoaded && window.onNewPipeStreamLoaded('" + youtubeId + "', '" + urlResult + "')", null);
+                            } else {
+                                wv.evaluateJavascript("window.onNewPipeStreamError && window.onNewPipeStreamError('" + youtubeId + "', 'No audio streams found')", null);
+                            }
+                        }
+                    });
+                } catch (Exception e) {
+                    final String err = e.getMessage() != null ? e.getMessage().replace("'", "\\'") : "Extraction error";
+                    runOnUiThread(() -> {
+                        if (wv != null) {
+                            wv.evaluateJavascript("window.onNewPipeStreamError && window.onNewPipeStreamError('" + youtubeId + "', '" + err + "')", null);
+                        }
+                    });
+                }
+            }).start();
         }
 
         @JavascriptInterface
@@ -530,7 +648,6 @@ public class MainActivity extends Activity {
                     } else if ("portrait".equalsIgnoreCase(mode)) {
                         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT);
                     } else {
-                        // Modo "sensor", "auto" o "unspecified": libre según los sensores del móvil
                         setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
                     }
                 } catch (Exception ignored) {}
@@ -541,865 +658,29 @@ public class MainActivity extends Activity {
         public void setKeepScreenOn(final boolean keepOn) {
             runOnUiThread(() -> {
                 try {
-                    if (keepOn) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                    else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 } catch (Exception ignored) {}
             });
         }
 
         @JavascriptInterface
-        public void playYT(final String id) {
-            playYTWithMeta(id, null, null);
-        }
-
-        @JavascriptInterface
-        public void playYTWithMeta(final String id, final String title, final String author) {
-            lastId = id;
-            currentPlayingId = id;
-            noVideoCount = 0;
-            triedAlt = false;
-
-            // Reflejar el video en la pantalla externa/TV si está conectada
-            if (tvPresentation != null) {
-                runOnUiThread(() -> tvPresentation.loadTvVideo(id));
-            }
-
-            // Iniciar o actualizar PlaybackService en primer plano para reproducción en segundo plano
-            try {
-                Intent si = new Intent(MainActivity.this, PlaybackService.class);
-                si.putExtra(PlaybackService.EXTRA_CMD, "bridge_play");
-                si.putExtra(PlaybackService.EXTRA_TITLE, title != null && !title.isEmpty() ? title : "Mix.Casete");
-                si.putExtra(PlaybackService.EXTRA_ARTIST, author != null ? author : "");
-                PlaybackService.start(MainActivity.this, si);
-            } catch (Exception ignored) {}
-
-            runOnUiThread(() -> playerWv.loadUrl(
-                    "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0&controls=0&modestbranding=1&enablejsapi=1"));
-        }
-        @JavascriptInterface public void resumeYT() {
-            if (tvPresentation != null) {
-                runOnUiThread(() -> tvPresentation.resumeVideo());
-            }
-            try {
-                Intent si = new Intent(MainActivity.this, PlaybackService.class);
-                si.putExtra(PlaybackService.EXTRA_CMD, "play");
-                PlaybackService.start(MainActivity.this, si);
-            } catch (Exception ignored) {}
-            runOnUiThread(() -> { tap(); enforce(); });
-        }
-        @JavascriptInterface public void pauseYT() {
-            if (tvPresentation != null) {
-                runOnUiThread(() -> tvPresentation.pauseVideo());
-            }
-            try {
-                Intent si = new Intent(MainActivity.this, PlaybackService.class);
-                si.putExtra(PlaybackService.EXTRA_CMD, "pause");
-                PlaybackService.start(MainActivity.this, si);
-            } catch (Exception ignored) {}
-            js("(function(){var v=document.querySelector('video');if(v)v.pause();})();");
-        }
-        @JavascriptInterface public void stopYT()  {
-            if (tvPresentation != null) {
-                runOnUiThread(() -> tvPresentation.pauseVideo());
-            }
-            try {
-                Intent si = new Intent(MainActivity.this, PlaybackService.class);
-                si.putExtra(PlaybackService.EXTRA_CMD, "stop");
-                PlaybackService.start(MainActivity.this, si);
-            } catch (Exception ignored) {}
-            runOnUiThread(() -> { polling = false; playerWv.loadUrl("about:blank"); });
-        }
-        @JavascriptInterface public void seekYT(final int sec) {
-            if (tvPresentation != null) {
-                runOnUiThread(() -> tvPresentation.seekVideo(sec));
-            }
-            js("(function(){var v=document.querySelector('video');if(v)v.currentTime=" + sec + ";})();");
-        }
-        @JavascriptInterface public void unmuteYT() { runOnUiThread(() -> { tap(); enforce(); tap(); enforce(); }); }
-
-        @JavascriptInterface
-        public void getStream(final String id) {
-            new Thread(() -> {
-                String json = null;
-                try { json = nativePlayer(id); } catch (Exception e) {}
-                final String out = json;
-                runOnUiThread(() -> wv.evaluateJavascript(
-                        "window.__streamCb && window.__streamCb(" + (out != null ? out : "null") + ")", null));
-            }).start();
-        }
-
-        @JavascriptInterface
-        public void downloadYT(final String id, final String title) {
-            new Thread(() -> {
-                String path = null;
-                try {
-                    JSONObject j = new JSONObject(nativePlayer(id));
-                    String url = j.getString("url");
-                    File dir = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
-                    if (dir != null) {
-                        File f = new File(dir, id + ".m4a");
-                        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-                        c.setConnectTimeout(10000);
-                        c.setReadTimeout(120000);
-                        c.setRequestProperty("User-Agent", UA);
-                        InputStream in = c.getInputStream();
-                        FileOutputStream out = new FileOutputStream(f);
-                        byte[] buf = new byte[16384];
-                        int n;
-                        long total = 0;
-                        while ((n = in.read(buf)) > 0) { out.write(buf, 0, n); total += n; }
-                        out.close();
-                        in.close();
-                        if (total > 10000) path = f.getAbsolutePath();
-                        else f.delete();
-                    }
-                } catch (Exception e) {}
-                final String p = path;
-                runOnUiThread(() -> wv.evaluateJavascript(
-                        "window.onDownloaded && window.onDownloaded('" + id + "'," +
-                        (p != null ? "'" + p + "'" : "null") + ")", null));
-            }).start();
-        }
-
-        @JavascriptInterface
-        public void exportPlaylist(final String json) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
-                    && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                       != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                pendingExport = json;
-                requestPermissions(new String[]{ android.Manifest.permission.WRITE_EXTERNAL_STORAGE }, REQ_WRITE);
-                return;
-            }
-            doExport(json);
-        }
-
-        @JavascriptInterface
-        public void exportPdf(final String base64Data, final String fileName) {
-            new Thread(() -> {
-                final boolean ok = writeBytesToDownloads(base64Data, fileName);
-                runOnUiThread(() -> wv.evaluateJavascript(
-                    "window.onPdfExported && window.onPdfExported(" + ok + ")", null));
-            }).start();
-        }
-
-        @JavascriptInterface
-        public void openPlaylistFile() {
+        public void logDebug(final String msg) {
             runOnUiThread(() -> {
-                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("*/*");
-                startActivityForResult(i, REQ_OPEN);
+                if (wv != null) {
+                    wv.evaluateJavascript("window.addDebugLog && window.addDebugLog('" + msg.replace("'", "\\'") + "')", null);
+                }
             });
         }
 
         @JavascriptInterface
-        public void loadPlaylistBackup() {
-            new Thread(() -> {
-                final String s = readPlaylistFromDownloads();
-                if (s != null && !s.trim().isEmpty()) {
-                    runOnUiThread(() -> {
-                        wv.evaluateJavascript(
-                            "window.onAutoLoadPlaylist && window.onAutoLoadPlaylist(" + JSONObject.quote(s) + ")", null);
-                    });
-                } else {
-                    // El archivo MixCasete_playlist.json no existe aún en Descargas:
-                    // Solicitar a la app web que lo cree inmediatamente con los datos de playlist actuales
-                    runOnUiThread(() -> {
-                        wv.evaluateJavascript(
-                            "window.onCreateDefaultPlaylistFile && window.onCreateDefaultPlaylistFile()", null);
-                    });
-                }
-            }).start();
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int rc, String[] perms, int[] g) {
-        super.onRequestPermissionsResult(rc, perms, g);
-        if (rc == REQ_WRITE && g.length > 0 && g[0] == 0 && pendingExport != null) {
-            doExport(pendingExport);
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req == REQ_OPEN && res == RESULT_OK && data != null && data.getData() != null) {
-            final Uri uri = data.getData();
-            new Thread(() -> {
+        public void exitApp() {
+            runOnUiThread(() -> {
                 try {
-                    InputStream is = getContentResolver().openInputStream(uri);
-                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
-                    is.close();
-                    final String s = bo.toString("UTF-8");
-                    runOnUiThread(() -> wv.evaluateJavascript(
-                        "window.onPlaylistImported && window.onPlaylistImported(" + JSONObject.quote(s) + ")", null));
-                } catch (Exception e) {}
-            }).start();
+                    PlaybackService.stop(MainActivity.this);
+                } catch (Exception ignored) {}
+                finish();
+            });
         }
-    }
-
-    private void doExport(final String json) {
-        new Thread(() -> {
-            final boolean ok = writePlaylistToDownloads(json);
-            runOnUiThread(() -> wv.evaluateJavascript(
-                "window.onExported && window.onExported(" + ok + ")", null));
-        }).start();
-    }
-
-    /* ============ RESPALDO ÚNICO DE PLAYLIST ============ */
-
-    /* Busca TODOS los respaldos existentes (MixCasete_playlist*.json o *playlist*.json) */
-    private List<Uri> findAllPlaylistUris() {
-        List<Uri> out = new ArrayList<>();
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return out;
-        try {
-            Cursor c = getContentResolver().query(
-                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                    new String[]{ MediaStore.Downloads._ID, MediaStore.Downloads.DATE_MODIFIED },
-                    MediaStore.Downloads.DISPLAY_NAME + " LIKE ? OR " + MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
-                    new String[]{ "%playlist%.json", "%MixCasete%.json" },
-                    MediaStore.Downloads.DATE_MODIFIED + " DESC");
-            if (c != null) {
-                while (c.moveToNext()) {
-                    long id = c.getLong(0);
-                    out.add(android.content.ContentUris.withAppendedId(
-                            MediaStore.Downloads.EXTERNAL_CONTENT_URI, id));
-                }
-                c.close();
-            }
-        } catch (Exception ignored) {}
-        return out;
-    }
-
-    /* Borra duplicados: conserva un solo archivo */
-    private void cleanupDuplicateBackups() {
-        try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
-            List<Uri> all = findAllPlaylistUris();
-            for (int i = 1; i < all.size(); i++) {
-                try { getContentResolver().delete(all.get(i), null, null); } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
-    }
-
-    /* Escribe SIEMPRE sobre el mismo archivo (sobrescribe un único MixCasete_playlist.json) */
-    private boolean writePlaylistToDownloads(String json) {
-        try {
-            // Guardar copia interna en almacenamiento privado seguro de la aplicación
-            try {
-                File internalFile = new File(getFilesDir(), "MixCasete_playlist.json");
-                FileOutputStream fos = new FileOutputStream(internalFile, false);
-                fos.write(json.getBytes("UTF-8"));
-                fos.flush();
-                fos.close();
-            } catch (Exception ignored) {}
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                android.content.ContentResolver cr = getContentResolver();
-                List<Uri> existing = findAllPlaylistUris();
-                Uri target = null;
-                OutputStream os = null;
-
-                // Intentar reutilizar el primer archivo existente abriéndolo con "wt" (truncate/overwrite)
-                for (Uri u : existing) {
-                    try {
-                        os = cr.openOutputStream(u, "wt");
-                        if (os != null) {
-                            target = u;
-                            break;
-                        }
-                    } catch (Exception ignored) {}
-                }
-
-                // Eliminar cualquier duplicado adicional para que quede un único archivo
-                for (Uri u : existing) {
-                    if (target != null && u.equals(target)) continue;
-                    try { cr.delete(u, null, null); } catch (Exception ignored) {}
-                }
-
-                // Si no existía o no se pudo abrir, eliminar cualquier entrada conflictiva por nombre antes de crear
-                if (os == null) {
-                    try {
-                        cr.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                                MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
-                                new String[]{ "MixCasete_playlist%" });
-                    } catch (Exception ignored) {}
-
-                    ContentValues cv = new ContentValues();
-                    cv.put(MediaStore.Downloads.DISPLAY_NAME, "MixCasete_playlist.json");
-                    cv.put(MediaStore.Downloads.MIME_TYPE, "application/json");
-                    cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                    cv.put(MediaStore.Downloads.IS_PENDING, 0);
-                    target = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
-                    if (target != null) {
-                        os = cr.openOutputStream(target, "wt");
-                    }
-                }
-
-                if (os != null) {
-                    os.write(json.getBytes("UTF-8"));
-                    os.flush();
-                    os.close();
-                    return true;
-                }
-                return false;
-            } else {
-                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                if (!dir.exists()) dir.mkdirs();
-                File f = new File(dir, "MixCasete_playlist.json");
-                FileOutputStream os = new FileOutputStream(f, false);
-                os.write(json.getBytes("UTF-8"));
-                os.flush();
-                os.close();
-                return true;
-            }
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /* Guarda un archivo binario (ej. PDF) en Descargas, decodificado desde base64. */
-    private boolean writeBytesToDownloads(String base64Data, String fileName) {
-        try {
-            byte[] data = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
-            String safeName = (fileName == null || fileName.trim().isEmpty())
-                    ? "MixCasete_export.pdf" : fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentValues cv = new ContentValues();
-                cv.put(MediaStore.Downloads.DISPLAY_NAME, safeName);
-                cv.put(MediaStore.Downloads.MIME_TYPE, "application/pdf");
-                cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                Uri target = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
-                if (target == null) return false;
-                OutputStream os = getContentResolver().openOutputStream(target);
-                os.write(data);
-                os.close();
-                return true;
-            } else {
-                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                File f = new File(dir, safeName);
-                FileOutputStream os = new FileOutputStream(f);
-                os.write(data);
-                os.close();
-                return true;
-            }
-        } catch (Exception e) { return false; }
-    }
-
-    private String readPlaylistFromDownloads() {
-        // 1. Intentar leer desde MediaStore Downloads (Android 10+)
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                List<Uri> all = findAllPlaylistUris();
-                for (Uri u : all) {
-                    try (InputStream is = getContentResolver().openInputStream(u)) {
-                        if (is != null) {
-                            String s = readAll(is);
-                            if (isValidPlaylistJson(s)) return s;
-                        }
-                    } catch (Exception ignored) {}
-                }
-            }
-        } catch (Exception ignored) {}
-
-        // 2. Intentar leer desde carpeta física Download/MixCasete_playlist.json
-        try {
-            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (dir != null && dir.exists()) {
-                File exactFile = new File(dir, "MixCasete_playlist.json");
-                if (exactFile.exists() && exactFile.canRead()) {
-                    String s = new String(java.nio.file.Files.readAllBytes(exactFile.toPath()), "UTF-8");
-                    if (isValidPlaylistJson(s)) return s;
-                }
-                File[] matches = dir.listFiles((d, name) -> {
-                    String lower = name.toLowerCase();
-                    return lower.endsWith(".json") && (lower.contains("playlist") || lower.contains("mixcasete"));
-                });
-                if (matches != null && matches.length > 0) {
-                    java.util.Arrays.sort(matches, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
-                    for (File f : matches) {
-                        try {
-                            String s = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8");
-                            if (isValidPlaylistJson(s)) return s;
-                        } catch (Exception ignored) {}
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
-
-        // 3. Fallback al almacenamiento interno privado de la app
-        try {
-            File internalFile = new File(getFilesDir(), "MixCasete_playlist.json");
-            if (internalFile.exists()) {
-                String s = new String(java.nio.file.Files.readAllBytes(internalFile.toPath()), "UTF-8");
-                if (isValidPlaylistJson(s)) return s;
-            }
-        } catch (Exception ignored) {}
-
-        return null;
-    }
-
-    private boolean isValidPlaylistJson(String s) {
-        if (s == null || s.trim().isEmpty()) return false;
-        try {
-            JSONObject j = new JSONObject(s);
-            if (j.has("tracks") || j.has("app")) return true;
-        } catch (Exception e) {
-            try {
-                JSONArray arr = new JSONArray(s);
-                return arr.length() > 0;
-            } catch (Exception ignored) {}
-        }
-        return false;
-    }
-
-    /* ============ EXTRACCIÓN DE AUDIO ============ */
-    private synchronized void ensureNewPipe() {
-        if (!npInit) {
-            try { NewPipe.init(new HttpDownloader()); } catch (Throwable t) {}
-            npInit = true;
-        }
-    }
-
-    private String newpipeExtract(String id) {
-        try {
-            ensureNewPipe();
-            StreamInfo info = StreamInfo.getInfo(ServiceList.YouTube,
-                    "https://www.youtube.com/watch?v=" + id);
-            List<AudioStream> audios = info.getAudioStreams();
-            AudioStream best = null;
-            // 1. Priorizar stream audio/mp4 (m4a / AAC) ya que se decodifica por hardware sin entrecortes en Android MediaPlayer
-            for (AudioStream a : audios) {
-                if (a == null || a.getContent() == null) continue;
-                String fmt = a.getFormat() != null ? a.getFormat().getName().toLowerCase() : "";
-                if (fmt.contains("m4a") || fmt.contains("mp4")) {
-                    if (best == null || a.getAverageBitrate() > best.getAverageBitrate()) {
-                        best = a;
-                    }
-                }
-            }
-            // 2. Si no hay m4a disponible, tomar el mejor stream alternativo
-            if (best == null) {
-                for (AudioStream a : audios) {
-                    if (a == null || a.getContent() == null) continue;
-                    if (best == null || a.getAverageBitrate() > best.getAverageBitrate()) {
-                        best = a;
-                    }
-                }
-            }
-            if (best == null) return null;
-            JSONObject out = new JSONObject();
-            out.put("url", best.getContent());
-            out.put("title", info.getName());
-            out.put("author", info.getUploaderName());
-            return out.toString();
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    public static class HttpDownloader extends Downloader {
-        @Override
-        public Response execute(Request request) throws IOException, ReCaptchaException {
-            HttpURLConnection conn = (HttpURLConnection) new URL(request.url()).openConnection();
-            conn.setRequestMethod(request.httpMethod());
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
-            conn.setRequestProperty("User-Agent", UA);
-            Map<String, List<String>> headers = request.headers();
-            if (headers != null) {
-                for (Map.Entry<String, List<String>> e : headers.entrySet()) {
-                    for (String v : e.getValue()) conn.addRequestProperty(e.getKey(), v);
-                }
-            }
-            byte[] data = request.dataToSend();
-            if (data != null) {
-                conn.setDoOutput(true);
-                OutputStream os = conn.getOutputStream();
-                os.write(data);
-                os.close();
-            }
-            int code = conn.getResponseCode();
-            if (code == 429) throw new ReCaptchaException("reCaptcha", request.url());
-            InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
-            String body = "";
-            if (is != null) {
-                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
-                body = bo.toString("UTF-8");
-            }
-            return new Response(code, conn.getResponseMessage(),
-                    conn.getHeaderFields(), conn.getURL().toString(), body);
-        }
-    }
-
-    private String nativePlayer(String id) {
-        String r = newpipeExtract(id);
-        if (r != null) return r;
-        r = innertubeExtract(id);
-        if (r != null) return r;
-        return fromInstances(id);
-    }
-
-    private String innertubeExtract(String id) {
-        try {
-            URL url = new URL("https://www.youtube.com/youtubei/v1/player?prettyPrint=false");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setConnectTimeout(7000);
-            conn.setReadTimeout(9000);
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("User-Agent", "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)");
-            conn.setDoOutput(true);
-
-            JSONObject body = new JSONObject();
-            JSONObject ctx = new JSONObject();
-            JSONObject client = new JSONObject();
-            client.put("clientName", "IOS");
-            client.put("clientVersion", "19.45.4");
-            client.put("deviceModel", "iPhone16,2");
-            client.put("hl", "es");
-            client.put("gl", "US");
-            ctx.put("client", client);
-            body.put("context", ctx);
-            body.put("videoId", id);
-
-            byte[] out = body.toString().getBytes(StandardCharsets.UTF_8);
-            OutputStream os = conn.getOutputStream();
-            os.write(out);
-            os.close();
-
-            int code = conn.getResponseCode();
-            if (code == 200) {
-                String resp = readAll(conn.getInputStream());
-                JSONObject j = new JSONObject(resp);
-                JSONObject sd = j.optJSONObject("streamingData");
-                if (sd != null) {
-                    JSONArray adaptive = sd.optJSONArray("adaptiveFormats");
-                    if (adaptive != null) {
-                        for (int i = 0; i < adaptive.length(); i++) {
-                            JSONObject f = adaptive.optJSONObject(i);
-                            if (f == null) continue;
-                            String mime = f.optString("mimeType", "");
-                            String u = f.optString("url", "");
-                            if (mime.contains("audio/mp4") && !u.isEmpty()) {
-                                JSONObject vd = j.optJSONObject("videoDetails");
-                                String title = vd != null ? vd.optString("title", "") : "";
-                                String author = vd != null ? vd.optString("author", "") : "";
-                                return buildOut(u, title, author);
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
-        return null;
-    }
-
-    private String fromInstances(String id) {
-        try {
-            JSONArray arr = new JSONArray(httpGet("https://api.invidious.io/instances.json?sort_by=health"));
-            int tried = 0;
-            for (int i = 0; i < arr.length() && tried < 6; i++) {
-                JSONArray entry = arr.optJSONArray(i);
-                if (entry == null) continue;
-                String host = entry.optString(0, "");
-                JSONObject meta = entry.optJSONObject(1);
-                if (host.isEmpty() || meta == null || !meta.optBoolean("api", false)) continue;
-                tried++;
-                try {
-                    JSONObject v = new JSONObject(httpGet("https://" + host + "/api/v1/videos/" + id));
-                    String url = pickInvidious(v, host);
-                    if (url != null) return buildOut(url, v.optString("title", ""), v.optString("author", ""));
-                } catch (Exception e) {}
-            }
-        } catch (Exception e) {}
-        try {
-            JSONArray arr = new JSONArray(httpGet("https://piped-instances.kavin.rocks/"));
-            int tried = 0;
-            for (int i = 0; i < arr.length() && tried < 6; i++) {
-                JSONObject inst = arr.optJSONObject(i);
-                if (inst == null) continue;
-                String api = inst.optString("api_url", "");
-                if (api.isEmpty()) continue;
-                tried++;
-                try {
-                    JSONObject v = new JSONObject(httpGet(api + "/streams/" + id));
-                    String url = pickPiped(v);
-                    if (url != null) return buildOut(url, v.optString("title", ""), v.optString("uploader", ""));
-                } catch (Exception e) {}
-            }
-        } catch (Exception e) {}
-        return null;
-    }
-
-    private String pickInvidious(JSONObject v, String host) {
-        String fallback = null;
-        JSONArray ad = v.optJSONArray("adaptiveFormats");
-        if (ad != null) {
-            for (int i = 0; i < ad.length(); i++) {
-                JSONObject f = ad.optJSONObject(i);
-                if (f == null) continue;
-                String t = f.optString("type", "");
-                String u = f.optString("url", "");
-                if (u.isEmpty()) continue;
-                if (u.startsWith("/")) u = "https://" + host + u;
-                if (t.startsWith("audio/mp4")) return u;
-                if (fallback == null && t.startsWith("audio")) fallback = u;
-            }
-        }
-        if (fallback != null) return fallback;
-        JSONArray fs = v.optJSONArray("formatStreams");
-        if (fs != null && fs.length() > 0) {
-            JSONObject f0 = fs.optJSONObject(0);
-            if (f0 != null) {
-                String u = f0.optString("url", "");
-                if (u.startsWith("/")) u = "https://" + host + u;
-                if (!u.isEmpty()) return u;
-            }
-        }
-        return null;
-    }
-
-    private String pickPiped(JSONObject v) {
-        JSONArray as = v.optJSONArray("audioStreams");
-        String best = null;
-        int bestBr = -1;
-        if (as != null) for (int i = 0; i < as.length(); i++) {
-            JSONObject f = as.optJSONObject(i);
-            if (f == null) continue;
-            String u = f.optString("url", "");
-            if (u.isEmpty()) continue;
-            int br = f.optInt("bitrate", 0);
-            if (br > bestBr) { bestBr = br; best = u; }
-        }
-        return best;
-    }
-
-    private String buildOut(String url, String title, String author) {
-        try {
-            JSONObject out = new JSONObject();
-            out.put("url", url);
-            out.put("title", title);
-            out.put("author", author);
-            return out.toString();
-        } catch (Exception e) { return null; }
-    }
-
-    private String httpGet(String urlStr) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
-        c.setConnectTimeout(6000);
-        c.setReadTimeout(8000);
-        c.setRequestProperty("User-Agent", UA);
-        int code = c.getResponseCode();
-        if (code != 200) throw new Exception("http " + code);
-        return readAll(c.getInputStream());
-    }
-
-    private String readAll(InputStream is) throws Exception {
-        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
-        return bo.toString("UTF-8");
-    }
-
-    /* ============ WEBVIEW DE RESPALDO ============ */
-    private class PlayerClient extends WebViewClient {
-        @Override
-        public void onPageFinished(WebView view, String url) {
-            injectBackgroundPlaybackScript(view);
-            if (url.contains("youtube.com/watch") || url.contains("youtu.be/")) {
-                injectWatchCss();
-                tap();
-                enforce();
-                view.postDelayed(() -> { injectBackgroundPlaybackScript(view); injectWatchCss(); tap(); enforce(); }, 700);
-                view.postDelayed(() -> { injectBackgroundPlaybackScript(view); enforce(); }, 1800);
-                view.postDelayed(() -> { injectBackgroundPlaybackScript(view); enforce(); }, 3500);
-                startPoll();
-            } else if (url.contains("/embed/") || url.contains("youtube-nocookie")) {
-                tap();
-                enforce();
-                view.postDelayed(() -> { injectBackgroundPlaybackScript(view); tap(); enforce(); }, 700);
-                view.postDelayed(() -> { injectBackgroundPlaybackScript(view); enforce(); }, 1800);
-                view.postDelayed(() -> { injectBackgroundPlaybackScript(view); enforce(); }, 3500);
-                startPoll();
-            }
-        }
-    }
-
-    private void injectBackgroundPlaybackScript(WebView view) {
-        if (view == null) return;
-        view.evaluateJavascript(
-            "(function(){\n" +
-            "  try {\n" +
-            "    Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });\n" +
-            "    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });\n" +
-            "    Object.defineProperty(document, 'webkitHidden', { get: function() { return false; }, configurable: true });\n" +
-            "    Object.defineProperty(document, 'webkitVisibilityState', { get: function() { return 'visible'; }, configurable: true });\n" +
-            "  } catch(e) {}\n" +
-            "  ['visibilitychange', 'webkitvisibilitychange', 'blur', 'pagehide'].forEach(function(ev) {\n" +
-            "    window.addEventListener(ev, function(e) { e.stopImmediatePropagation(); }, true);\n" +
-            "    document.addEventListener(ev, function(e) { e.stopImmediatePropagation(); }, true);\n" +
-            "  });\n" +
-            "  var v = document.querySelector('video');\n" +
-            "  if (v) {\n" +
-            "    v.removeAttribute('muted'); v.defaultMuted = false; v.muted = false; v.volume = 1;\n" +
-            "    if (v.paused) v.play();\n" +
-            "  }\n" +
-            "})();", null);
-    }
-
-    private void injectWatchCss() {
-        playerWv.evaluateJavascript(
-            "(function(){if(document.getElementById('mcCss'))return;" +
-            "var s=document.createElement('style');s.id='mcCss';" +
-            "s.textContent='ytd-masthead,#masthead,#comments,ytd-comments,#related,ytd-related,#secondary,#below,#chat,ytd-live-chat-frame,#subscribe-button,ytd-reel-shelf-renderer{display:none!important}';" +
-            "document.head.appendChild(s);window.scrollTo(0,0);})()", null);
-    }
-
-    private void tap() {
-        if (!isForeground) return;
-        long t = SystemClock.uptimeMillis();
-        float cx = Math.max(1, playerWv.getWidth() / 2f);
-        float cy = Math.max(1, playerWv.getHeight() / 2f);
-        MotionEvent down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, cx, cy, 0);
-        MotionEvent up   = MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, cx, cy, 0);
-        playerWv.dispatchTouchEvent(down);
-        playerWv.dispatchTouchEvent(up);
-        down.recycle();
-        up.recycle();
-    }
-
-    private void enforce() {
-        if (!isForeground) return;
-        playerWv.evaluateJavascript(
-            "(function(){var v=document.querySelector('video');" +
-            "if(!v)return 'novideo';" +
-            "v.removeAttribute('muted');v.defaultMuted=false;v.muted=false;v.volume=1;" +
-            "if(v.paused){v.play();}" +
-            "return 'ok m='+v.muted+' p='+v.paused;})()",
-            value -> wv.evaluateJavascript("debug('bridge " + value + "')", null)
-        );
-    }
-
-    private void startPoll() {
-        if (polling) return;
-        polling = true;
-        final Runnable[] r = new Runnable[1];
-        r[0] = () -> {
-            if (!polling) return; // se cerró el video: no seguir sondeando
-            if (!isForeground) {
-                // Si la app está en segundo plano o pantalla apagada, no saturar CPU
-                // ni interferir con la pantalla de bloqueo
-                if (polling) wv.postDelayed(r[0], 2500);
-                return;
-            }
-            playerWv.evaluateJavascript(
-                "(function(){var v=document.querySelector('video');if(!v)return null;" +
-                "return JSON.stringify({t:v.currentTime||0,p:v.paused,e:v.ended,m:v.muted});})()",
-                value -> {
-                    if (!polling) return;
-                    if (value == null || value.equals("null")) {
-                        noVideoCount++;
-                        if (noVideoCount > 4 && !triedAlt && lastId != null) {
-                            triedAlt = true;
-                            noVideoCount = 0;
-                            runOnUiThread(() -> playerWv.loadUrl(
-                                "https://www.youtube-nocookie.com/embed/" + lastId +
-                                "?autoplay=1&playsinline=1&rel=0"));
-                        }
-                    } else {
-                        noVideoCount = 0;
-                        if ((value.contains("\"m\":true") || value.contains("\"p\":true"))
-                                && !value.contains("\"e\":true")) enforce();
-                    }
-                    wv.evaluateJavascript(
-                        "window.onBridgeState && window.onBridgeState(" + value + ");", null);
-                }
-            );
-            if (polling) wv.postDelayed(r[0], 1000);
-        };
-        wv.postDelayed(r[0], 1200);
-    }
-
-    /** Corta el sondeo y libera el foco de audio que enforce() venía pidiendo
-     *  cada segundo; se llama al cerrar el video para no interferir más con
-     *  la reproducción nativa. */
-    private void stopPoll() {
-        polling = false;
-    }
-
-    private void js(final String code) {
-        runOnUiThread(() -> playerWv.evaluateJavascript(code, null));
-    }
-
-    @Override
-    public void onBackPressed() {
-        // 1. Si el overlay de video está abierto, cerrarlo primero
-        if (playerWv != null && playerWv.getAlpha() > 0.1f) {
-            hideVideoOverlay();
-            return;
-        }
-        // 2. Si la pantalla está fijada en horizontal, restaurar orientación y modo normal
-        if (getRequestedOrientation() == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) {
-            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-            if (wv != null) {
-                wv.evaluateJavascript("window.setClassicMode && window.setClassicMode(true)", null);
-            }
-            return;
-        }
-        // 3. Si hay historial dentro de la WebView principal, volver atrás
-        if (wv != null && wv.canGoBack()) {
-            wv.goBack();
-            return;
-        }
-        // 4. Salir completamente de la aplicación sin dejar nada en segundo plano
-        cleanupAndExit();
-    }
-
-    private void cleanupAndExit() {
-        releaseNativePlayer();
-        stopPoll();
-        try {
-            PlaybackService.stop(this);
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (nm != null) nm.cancelAll();
-        } catch (Exception ignored) {}
-        finishAffinity();
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        isForeground = false;
-        // Reproducción en segundo plano: NO pausar para que continúe sonando con la pantalla apagada o al cambiar de app
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        isForeground = true;
-        if (wv != null) wv.resumeTimers();
-        if (playerWv != null) playerWv.resumeTimers();
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (displayManager != null) {
-            try { displayManager.unregisterDisplayListener(displayListener); } catch (Exception ignored) {}
-        }
-        if (tvPresentation != null) {
-            try { tvPresentation.dismiss(); } catch (Exception ignored) {}
-            tvPresentation = null;
-        }
-        cleanupAndExit();
     }
 }

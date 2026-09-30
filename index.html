@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>MixCasete - Retro Cassette Player</title>
 <meta name="description" content="Reproductor retro de casete con búsqueda en YouTube, grabación en cinta virtual, listas de reproducción, carátulas HD y letras de canciones.">
 <meta property="og:title" content="MixCasete - Retro Cassette Player">
@@ -13,14 +13,24 @@
 <link href="https://cdn.jsdelivr.net/fontsource/css/montserrat@latest/latin-800.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
+  :root {
+    --cassette-ratio: 1.6; /* Proporción estándar Walkman ~ 16:10 / 1.6:1 */
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
-    width: 100%; height: 100%;
+    width: 100vw; height: 100vh;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
     background: radial-gradient(circle at 50% 30%, #2e2a26 0%, #171412 70%, #0c0a09 100%);
     font-family: 'Oswald', 'Arial Black', sans-serif;
     display: flex;
-    overflow: auto;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
   }
 
   .device {
@@ -1525,6 +1535,96 @@
     }
   }
 
+  /* ESTILOS PARA BANNER DE PREVIEW DE 30S Y REGISTRO DE FUENTES / DEBUG */
+  .preview-banner {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #d35400, #c0392b);
+    color: #ffffff;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    z-index: 9999;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.2);
+    pointer-events: none;
+    text-align: center;
+  }
+
+  .debug-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    backdrop-filter: blur(4px);
+  }
+  .debug-modal-box {
+    background: #191512;
+    border: 1px solid #3d342a;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 520px;
+    max-height: 82vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.9);
+  }
+  .debug-modal-header {
+    padding: 12px 16px;
+    background: #251f1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #332b24;
+    color: #f5a623;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1px;
+  }
+  .debug-modal-header button {
+    background: none; border: none; color: #fff; font-size: 16px; cursor: pointer;
+  }
+  .debug-modal-body {
+    padding: 12px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: #2ecc71;
+    background: #0d0a08;
+    flex: 1;
+    max-height: 52vh;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .debug-modal-footer {
+    padding: 10px 16px;
+    background: #251f1a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid #332b24;
+  }
+  .debug-modal-footer button {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: bold;
+  }
+
   @media (orientation: portrait) {
     .split-col-player {
       width: 100%;
@@ -1546,7 +1646,7 @@
     .cassette-window {
       width: 100%;
       max-width: 100%;
-      aspect-ratio: 1.56 / 1;
+      aspect-ratio: var(--cassette-ratio) !important;
       margin: 0 auto;
       padding: 8px 10px;
     }
@@ -2092,7 +2192,47 @@
               <span class="sub-desc">El video se refleja en la TV y se controla desde este móvil</span>
             </div>
           </button>
+          <button class="tools-sub-item" id="btnLocalFiles" title="Abrir archivos locales de audio del dispositivo">
+            <span class="sub-icon">📁</span>
+            <div class="sub-text">
+              <span class="sub-name">Archivos Locales</span>
+              <span class="sub-desc">Cargar música desde el almacenamiento</span>
+            </div>
+          </button>
+          <button class="tools-sub-item" id="btnLoginYt" title="Iniciar sesión en YouTube (Opcional)">
+            <span class="sub-icon">👤</span>
+            <div class="sub-text">
+              <span class="sub-name">Cuenta YouTube (Opcional)</span>
+              <span class="sub-desc">Para listas privadas y favoritos</span>
+            </div>
+          </button>
+          <button class="tools-sub-item" id="btnDebugLog" title="Ver registro de fuentes y errores en tiempo real">
+            <span class="sub-icon">🛠</span>
+            <div class="sub-text">
+              <span class="sub-name">Registro de Fuentes</span>
+              <span class="sub-desc">Comprobar estado y fallos de streams</span>
+            </div>
+          </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="localFileInput" accept="audio/*" multiple style="display:none;">
+
+  <div id="previewBanner" class="preview-banner" style="display:none;">
+    <span>⚠️ Reproduciendo fragmento de 30s (Deezer/iTunes)</span>
+  </div>
+
+  <div class="debug-modal-overlay" id="debugModalOverlay" style="display:none;">
+    <div class="debug-modal-box">
+      <div class="debug-modal-header">
+        <span>🛠 REGISTRO DE FUENTES Y ERRORES</span>
+        <button id="debugModalClose">✕</button>
+      </div>
+      <div class="debug-modal-body" id="debugLogList"></div>
+      <div class="debug-modal-footer">
+        <button id="clearDebugLogBtn">LIMPIAR REGISTRO</button>
       </div>
     </div>
   </div>
@@ -3545,102 +3685,102 @@ setupMediaSession();
 
 const IS_REAL_ANDROID = (typeof window.Android !== 'undefined' && typeof window.Android.nativePlay === 'function' && !window.Android.__isWebPolyfill);
 
-if (!IS_REAL_ANDROID) {
-  let ytPlayerInstance = null;
-  let ytReady = false;
-  let pendingVideoId = null;
-  let ytProgressTimer = null;
+let ytPlayerInstance = null;
+let ytReady = false;
+let pendingVideoId = null;
+let ytProgressTimer = null;
 
-  function loadDirectWebIframe(id) {
-    const cont = document.getElementById('hiddenYtContainer');
-    if (!cont) return;
-    cont.innerHTML = '<iframe id="directYtIframe" width="240" height="180" src="https://www.youtube.com/embed/' + id + '?autoplay=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin) + '&playsinline=1&controls=0&rel=0&modestbranding=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" style="border:none;width:240px;height:180px;"></iframe>';
-  }
+function loadDirectWebIframe(id) {
+  const cont = document.getElementById('hiddenYtContainer');
+  if (!cont) return;
+  cont.innerHTML = '<iframe id="directYtIframe" width="240" height="180" src="https://www.youtube.com/embed/' + id + '?autoplay=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin) + '&playsinline=1&controls=0&rel=0&modestbranding=1" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" style="border:none;width:240px;height:180px;"></iframe>';
+}
 
-  // Cargar YouTube Iframe API oficial
-  (function() {
-    const s = document.createElement('script');
-    s.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(s);
-  })();
+// Cargar YouTube Iframe API oficial (Prioridad 1)
+(function() {
+  const s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(s);
+})();
 
-  window.onYouTubeIframeAPIReady = function() {
-    ytPlayerInstance = new YT.Player('hiddenYtPlayer', {
-      height: '180',
-      width: '240',
-      playerVars: {
-        autoplay: 1,
-        playsinline: 1,
-        controls: 0,
-        disablekb: 1,
-        fs: 0,
-        rel: 0,
-        enablejsapi: 1,
-        origin: window.location.origin
+window.onYouTubeIframeAPIReady = function() {
+  ytPlayerInstance = new YT.Player('hiddenYtPlayer', {
+    height: '180',
+    width: '240',
+    playerVars: {
+      autoplay: 1,
+      playsinline: 1,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
+      rel: 0,
+      enablejsapi: 1,
+      origin: window.location.origin
+    },
+    events: {
+      onReady: function(e) {
+        ytReady = true;
+        const ifr = document.querySelector('#hiddenYtContainer iframe');
+        if (ifr) ifr.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+        try {
+          e.target.unMute();
+          e.target.setVolume(100);
+        } catch (err) {}
+        if (pendingVideoId) {
+          playById(pendingVideoId);
+          pendingVideoId = null;
+        }
       },
-      events: {
-        onReady: function(e) {
-          ytReady = true;
-          const ifr = document.querySelector('#hiddenYtContainer iframe');
-          if (ifr) ifr.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
-          try {
-            e.target.unMute();
-            e.target.setVolume(100);
-          } catch (err) {}
-          if (pendingVideoId) {
-            window.Android.playYT(pendingVideoId);
-            pendingVideoId = null;
+      onStateChange: function(e) {
+        if (e.data === YT.PlayerState.PLAYING) {
+          onAudioPlayingConfirmed('P1: YouTube IFrame');
+          if (window.onBridgeState) {
+            window.onBridgeState({ p: false, t: ytPlayerInstance ? ytPlayerInstance.getCurrentTime() : 0 });
           }
-        },
-        onStateChange: function(e) {
-          if (e.data === YT.PlayerState.PLAYING) {
-            if (window.onBridgeState) {
-              window.onBridgeState({ p: false, t: ytPlayerInstance ? ytPlayerInstance.getCurrentTime() : 0 });
-            }
-            soundFab.classList.remove('show');
-            setReels(true);
-            clearInterval(ytProgressTimer);
-            ytProgressTimer = setInterval(() => {
-              if (ytPlayerInstance && ytPlayerInstance.getCurrentTime) {
-                const t = ytPlayerInstance.getCurrentTime() || 0;
-                const dur = ytPlayerInstance.getDuration() || 180;
-                if (window.onBridgeState) {
-                  window.onBridgeState({ p: false, t: t });
-                }
-                const tapeEl = document.getElementById('tapePack');
-                if (tapeEl && dur > 0) {
-                  const p = Math.min(1, Math.max(0, t / dur));
-                  tapeEl.style.width = (42 - p * 30) + '%';
-                }
-              }
-            }, 500);
-          } else if (e.data === YT.PlayerState.PAUSED) {
-            clearInterval(ytProgressTimer);
-            setReels(false);
-            if (window.onBridgeState) {
-              window.onBridgeState({ p: true, t: ytPlayerInstance ? ytPlayerInstance.getCurrentTime() : 0 });
-            }
-          } else if (e.data === YT.PlayerState.ENDED) {
-            clearInterval(ytProgressTimer);
-            setReels(false);
-            if (window.onBridgeState) {
-              window.onBridgeState({ e: true });
-            }
-            autoNext();
-          }
-        },
-        onError: function(err) {
+          soundFab.classList.remove('show');
           clearInterval(ytProgressTimer);
-          debug('YouTube error: ' + (err ? err.data : ''));
-          // Si el embed es restringido (101/150) o falla la API, intentar vía iframe directo o saltar al siguiente
-          if (pendingVideoId || (current && current.id)) {
-            const vidId = pendingVideoId || current.id;
-            loadDirectWebIframe(vidId);
+          ytProgressTimer = setInterval(() => {
+            if (ytPlayerInstance && ytPlayerInstance.getCurrentTime) {
+              const t = ytPlayerInstance.getCurrentTime() || 0;
+              const dur = ytPlayerInstance.getDuration() || 180;
+              if (window.onBridgeState) {
+                window.onBridgeState({ p: false, t: t });
+              }
+              const tapeEl = document.getElementById('tapePack');
+              if (tapeEl && dur > 0) {
+                const p = Math.min(1, Math.max(0, t / dur));
+                tapeEl.style.width = (42 - p * 30) + '%';
+              }
+            }
+          }, 500);
+        } else if (e.data === YT.PlayerState.PAUSED) {
+          clearInterval(ytProgressTimer);
+          setReels(false);
+          if (window.onBridgeState) {
+            window.onBridgeState({ p: true, t: ytPlayerInstance ? ytPlayerInstance.getCurrentTime() : 0 });
           }
+        } else if (e.data === YT.PlayerState.ENDED) {
+          clearInterval(ytProgressTimer);
+          setReels(false);
+          if (window.onBridgeState) {
+            window.onBridgeState({ e: true });
+          }
+          autoNext();
+        }
+      },
+      onError: function(err) {
+        clearInterval(ytProgressTimer);
+        addDebugLog('YouTube IFrame Error: ' + (err ? err.data : ''));
+        setReels(false);
+        if (current) {
+          fallbackToNextSource(current);
         }
       }
-    });
-  };
+    }
+  });
+};
+
+if (typeof window.Android === 'undefined') {
 
   // Listener para mensajes del reproductor iframe directo
   window.addEventListener('message', function(event) {
@@ -4653,6 +4793,78 @@ document.getElementById('plOpen').onclick = () => { renderPL(); plOverlay.classL
 plOverlay.onclick = e => { if (e.target === plOverlay) plOverlay.classList.remove('open'); };
 function closePL() { plOverlay.classList.remove('open'); }
 
+/* ============ BOTONES DEL MENÚ DE OPCIONES ============ */
+const btnLocalFiles = document.getElementById('btnLocalFiles');
+if (btnLocalFiles) {
+  btnLocalFiles.addEventListener('click', () => {
+    const sm = document.getElementById('toolsSubmenu');
+    if (sm) sm.classList.remove('open');
+    if (window.Android && window.Android.openDocumentPicker) {
+      window.Android.openDocumentPicker();
+    } else {
+      const fileInp = document.getElementById('localFileInput');
+      if (fileInp) fileInp.click();
+    }
+  });
+}
+const localFileInput = document.getElementById('localFileInput');
+if (localFileInput) {
+  localFileInput.addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (!files || !files.length) return;
+    const tracks = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const url = URL.createObjectURL(file);
+      tracks.push({
+        id: 'local_' + Date.now() + '_' + i,
+        title: file.name.replace(/\.[^/.]+$/, ''),
+        author: 'Archivo Local',
+        url: url,
+        isLocal: true
+      });
+    }
+    window.onLocalAudioLoaded(tracks);
+  });
+}
+
+const btnLoginYt = document.getElementById('btnLoginYt');
+if (btnLoginYt) {
+  btnLoginYt.addEventListener('click', () => {
+    const sm = document.getElementById('toolsSubmenu');
+    if (sm) sm.classList.remove('open');
+    if (window.Android && window.Android.openLoginModal) {
+      window.Android.openLoginModal();
+    } else {
+      flashTitle('ℹ Inicia sesión en YouTube desde el navegador');
+      window.open('https://m.youtube.com', '_blank');
+    }
+  });
+}
+
+const btnDebugLog = document.getElementById('btnDebugLog');
+const debugModalOverlay = document.getElementById('debugModalOverlay');
+const debugModalClose = document.getElementById('debugModalClose');
+const clearDebugLogBtn = document.getElementById('clearDebugLogBtn');
+if (btnDebugLog && debugModalOverlay) {
+  btnDebugLog.addEventListener('click', () => {
+    const sm = document.getElementById('toolsSubmenu');
+    if (sm) sm.classList.remove('open');
+    debugModalOverlay.style.display = 'flex';
+  });
+}
+if (debugModalClose && debugModalOverlay) {
+  debugModalClose.addEventListener('click', () => {
+    debugModalOverlay.style.display = 'none';
+  });
+}
+if (clearDebugLogBtn) {
+  clearDebugLogBtn.addEventListener('click', () => {
+    const list = document.getElementById('debugLogList');
+    if (list) list.innerHTML = '';
+  });
+}
+
 /* ============ EXPORT / IMPORT ============ */
 function playlistJson() {
   return JSON.stringify({ app: 'MixCasete', version: 1,
@@ -5066,103 +5278,140 @@ async function enrichMeta(id, fallbackTitle) {
   return { title: finalTitle, author: finalAuthor };
 }
 
-/* ============ BÚSQUEDA ============ */
-async function pipedSearch(q) {
-  const { piped } = await loadLists();
-  for (const base of piped.slice(0, 3)) {
-    try {
-      const j = await (await fetchSmart(base + '/search?q=' + encodeURIComponent(q) + '&filter=music_songs', 5000)).json();
-      const items = (j.items || []).filter(i => i.type === 'stream').slice(0, 15)
-        .map(i => ({ id: (i.url || '').replace('/watch?v=', ''), title: i.title,
-          author: i.uploaderName || '', dur: i.duration, thumb: i.thumbnail }));
-      if (items.length) return items;
-    } catch (e) {}
+/* ============================================================
+   🛠 SISTEMA DE REGISTRO EN PANTALLA (MODO DEBUG)
+   ============================================================ */
+function addDebugLog(msg) {
+  console.log('[MixCasete]', msg);
+  const list = document.getElementById('debugLogList');
+  if (list) {
+    const time = new Date().toTimeString().split(' ')[0];
+    const div = document.createElement('div');
+    div.style.marginBottom = '4px';
+    div.textContent = '[' + time + '] ' + msg;
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
   }
-  return null;
-}
-async function invidiousSearch(q) {
-  const { inv } = await loadLists();
-  for (const base of inv.slice(0, 3)) {
-    try {
-      const j = await (await fetchSmart(base + '/api/v1/search?q=' + encodeURIComponent(q) + '&type=music', 5000)).json();
-      const items = (Array.isArray(j) ? j : []).filter(i => i.type === 'video' && i.videoId).slice(0, 15)
-        .map(i => ({ id: i.videoId, title: i.title, author: i.author || '',
-          dur: i.lengthSeconds, thumb: 'https://i.ytimg.com/vi/' + i.videoId + '/hqdefault.jpg' }));
-      if (items.length) return items;
-    } catch (e) {}
-  }
-  return null;
-}
-async function ytHtmlSearch(q) {
-  const target = 'https://www.youtube.com/results?search_query=' +
-    encodeURIComponent(q) + '&sp=EgIQAQ%253D%253D';
-  const html = await (await fetchSmart(target, 8000)).text();
-  const m = html.match(/var ytInitialData = (.+?);<\/script>/s);
-  if (!m) return null;
-  const data = JSON.parse(m[1]);
-  const sections = data?.contents?.twoColumnSearchResultsRenderer
-    ?.primaryContents?.sectionListRenderer?.contents || [];
-  const items = [];
-  for (const sec of sections) {
-    const list = sec?.itemSectionRenderer?.contents || [];
-    for (const c of list) {
-      const v = c?.videoRenderer;
-      if (v && v.videoId) {
-        items.push({
-          id: v.videoId,
-          title: ((v.title?.runs || []).map(r => r.text).join('')) || v.title?.simple || '',
-          author: v.ownerText?.simple || ((v.longBylineText?.runs || [])[0]?.text ?? ''),
-          dur: parseDur(v.lengthText?.simple),
-          thumb: (v.thumbnail?.thumbnails || []).slice(-1)[0]?.url ||
-                 ('https://i.ytimg.com/vi/' + v.videoId + '/hqdefault.jpg')
-        });
-      }
-      if (items.length >= 15) break;
-    }
-    if (items.length) break;
-  }
-  return items.length ? items : null;
-}
-async function jinaSearch(q) {
-  const target = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
-  const r = await fetchTimeout('https://r.jina.ai/' + target, 12000);
-  if (!r.ok) throw new Error('jina ' + r.status);
-  const txt = await r.text();
-  const re = /\[([^\]\n]{3,120})\]\((?:https?:\/\/(?:www\.)?youtube\.com\/watch\?v=|https?:\/\/youtu\.be\/)([\w-]{11})[^)]*\)/g;
-  const seen = new Set();
-  const items = [];
-  let m;
-  while ((m = re.exec(txt)) && items.length < 15) {
-    const title = m[1].trim();
-    const id = m[2];
-    if (seen.has(id)) continue;
-    if (/^(YouTube|youtube|Watch later|Save)$/i.test(title)) continue;
-    seen.add(id);
-    items.push({ id, title, author: guessArtist(title) || 'YouTube', dur: 0,
-      thumb: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg' });
-  }
-  return items.length ? items : null;
 }
 
+function showPreviewBanner() {
+  const b = document.getElementById('previewBanner');
+  if (b) b.style.display = 'block';
+}
+
+function hidePreviewBanner() {
+  const b = document.getElementById('previewBanner');
+  if (b) b.style.display = 'none';
+}
+
+/* ============================================================
+   🔍 BÚSQUEDA DIRECTA Y CONFIABLE (SIN PIPED / SIN PROXIES CAÍDOS)
+   ============================================================ */
 async function searchMusic(q) {
   const list = document.getElementById('resultsList');
-  list.innerHTML = '<div class="result-status">⏳ Buscando en YouTube...</div>';
+  list.innerHTML = '<div class="result-status">⏳ Buscando canciones en YouTube...</div>';
+  addDebugLog('Iniciando búsqueda para: ' + q);
+
   try {
-    const items = await withTimeout(anyPromise([
-      pipedSearch(q), invidiousSearch(q), ytHtmlSearch(q), jinaSearch(q)
-    ].map(p => p.then(r => { if (!r || !r.length) throw new Error('x'); return r; }))), 13000);
+    let items = [];
+
+    // 1. Si es un enlace directo de YouTube
+    const directId = extractVideoId(q);
+    if (directId) {
+      const meta = await enrichMeta(directId, 'Video de YouTube');
+      items = [{
+        id: directId,
+        title: meta.title || 'Video de YouTube',
+        author: meta.author || 'YouTube',
+        dur: 0,
+        thumb: 'https://i.ytimg.com/vi/' + directId + '/hqdefault.jpg'
+      }];
+    }
+
+    // 2. Consulta de sugerencias oficiales de YouTube
+    if (!items.length) {
+      try {
+        const sugUrl = 'https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=' + encodeURIComponent(q);
+        const r = await fetchTimeout(sugUrl, 4000);
+        if (r.ok) {
+          const json = await r.json();
+          const suggestions = json[1] || [];
+          if (suggestions.length > 0) {
+            addDebugLog('Sugerencias YouTube obtenidas: ' + suggestions.length);
+          }
+        }
+      } catch (ignored) {}
+    }
+
+    // 3. Búsqueda de metadatos vía iTunes API oficial (alta disponibilidad)
+    if (!items.length) {
+      try {
+        const itUrl = 'https://itunes.apple.com/search?term=' + encodeURIComponent(q) + '&entity=song&limit=15';
+        const r = await fetchTimeout(itUrl, 5000);
+        if (r.ok) {
+          const data = await r.json();
+          if (data.results && data.results.length > 0) {
+            items = data.results.map(t => ({
+              id: 'itunes_' + t.trackId,
+              title: t.trackName,
+              author: t.artistName,
+              dur: Math.round((t.trackTimeMillis || 0) / 1000),
+              thumb: (t.artworkUrl100 || '').replace('100x100bb', '600x600bb'),
+              previewUrl: t.previewUrl,
+              isFallback: true
+            }));
+            addDebugLog('Resultados obtenidos vía catálogo iTunes: ' + items.length);
+          }
+        }
+      } catch (ignored) {}
+    }
+
+    // 4. Búsqueda complementaria vía Deezer API oficial
+    if (!items.length) {
+      try {
+        const dzUrl = 'https://api.deezer.com/search?q=' + encodeURIComponent(q) + '&limit=15';
+        const r = await fetchTimeout(dzUrl, 5000);
+        if (r.ok) {
+          const data = await r.json();
+          if (data.data && data.data.length > 0) {
+            items = data.data.map(t => ({
+              id: 'deezer_' + t.id,
+              title: t.title,
+              author: t.artist ? t.artist.name : '',
+              dur: t.duration,
+              thumb: t.album ? t.album.cover_big : '',
+              previewUrl: t.preview,
+              isFallback: true
+            }));
+            addDebugLog('Resultados obtenidos vía catálogo Deezer: ' + items.length);
+          }
+        }
+      } catch (ignored) {}
+    }
+
+    // Si aún no hay items, construir búsqueda directa por término
+    if (!items.length) {
+      items = [{
+        id: 'search_' + Math.abs(q.hashCode ? q.hashCode() : q.length),
+        title: q,
+        author: 'Búsqueda YouTube',
+        dur: 0,
+        thumb: 'https://i.ytimg.com/vi/default/hqdefault.jpg'
+      }];
+    }
+
     list.innerHTML = '';
     items.forEach(it => {
       const div = document.createElement('div');
       div.className = 'result-item';
       div.innerHTML =
-        '<img src="' + it.thumb + '" loading="lazy">' +
+        '<img src="' + (it.thumb || 'https://i.ytimg.com/vi/default/hqdefault.jpg') + '" loading="lazy">' +
         '<div class="result-info">' +
           '<div class="result-title">' + it.title + '</div>' +
           '<div class="result-meta">' + it.author + (it.dur ? ' · ' + fmt(it.dur) : '') + '</div>' +
         '</div>' +
         '<div class="result-actions">' +
-          '<button class="result-btn-next" title="Agregar a la cola como siguiente tema">➕ SIGUIENTE</button>' +
+          '<button class="result-btn-next" title="Agregar a la cola">➕ SIGUIENTE</button>' +
         '</div>';
 
       const btnNext = div.querySelector('.result-btn-next');
@@ -5177,188 +5426,249 @@ async function searchMusic(q) {
         }, 1800);
       };
 
-      div.onclick = () => { closeSearch(); playById(it.id, it.title, it.thumb, it.author); };
+      div.onclick = () => {
+        closeSearch();
+        playById(it.id, it.title, it.thumb, it.author);
+      };
       list.appendChild(div);
     });
   } catch (e) {
-    list.innerHTML = '<div class="result-status">⚠️ Búsqueda saturada.<br>Pega un enlace de YouTube arriba y dale ▶</div>';
+    addDebugLog('Error en búsqueda: ' + e.message);
+    list.innerHTML = '<div class="result-status">⚠️ Escribe el nombre o pega un enlace de YouTube arriba y dale ▶</div>';
   }
 }
 
-/* ============ STREAMS WEB ============ */
-function pickFormats(j, id) {
-  if (!j) return null;
-  const thumb = 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg';
-  const aud = (j.audioStreams || j.adaptiveFormats || [])
-    .filter(f => f.url && ((f.mimeType || f.type || '').startsWith('audio')))
-    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-  if (aud.length) return { url: aud[0].url, title: j.title, author: j.author || j.uploader || '', thumb };
-  const prog = (j.formatStreams || []).find(f => f.url);
-  if (prog) return { url: prog.url, title: j.title, author: j.author || j.uploader || '', thumb };
-  return null;
-}
-async function pipedStream(id) {
-  const { piped } = await loadLists();
-  for (const base of piped.slice(0, 4)) {
-    try {
-      const j = await (await fetchSmart(base + '/streams/' + id, 5000)).json();
-      const out = pickFormats(j, id);
-      if (out) { debug('Stream vía Piped'); return out; }
-    } catch (e) {}
-  }
-  return null;
-}
-async function invidiousStream(id) {
-  const { inv } = await loadLists();
-  for (const base of inv.slice(0, 4)) {
-    try {
-      const j = await (await fetchSmart(base + '/api/v1/videos/' + id, 5000)).json();
-      const out = pickFormats(j, id);
-      if (out) { debug('Stream vía Invidious'); return out; }
-    } catch (e) {}
-  }
-  return null;
-}
-function extractJson(txt) {
-  const a = txt.indexOf('{');
-  const b = txt.lastIndexOf('}');
-  if (a === -1 || b === -1 || b <= a) return null;
-  try { return JSON.parse(txt.slice(a, b + 1)); } catch (e) { return null; }
-}
-async function jinaStream(id) {
-  const { piped, inv } = await loadLists();
-  const all = inv.slice(0, 2).map(b => ({ b, p: '/api/v1/videos/' }))
-    .concat(piped.slice(0, 2).map(b => ({ b, p: '/streams/' })));
-  for (const { b, p } of all) {
-    try {
-      const r = await fetchTimeout('https://r.jina.ai/' + b + p + id, 10000);
-      if (!r.ok) continue;
-      const out = pickFormats(extractJson(await r.text()), id);
-      if (out) { debug('Stream vía Jina'); return out; }
-    } catch (e) {}
-  }
-  return null;
+/* ============================================================
+   🎵 SISTEMA DE PRIORIDAD DE AUDIO Y RECUPERACIÓN (TIMEOUT 8s)
+   Prioridad:
+   1. YouTube IFrame API oficial en WebView
+   2. NewPipe Extractor nativo (con reintento de URL fresca)
+   3. Vista previa de 30s de Deezer / iTunes (con aviso en pantalla)
+   4. Archivos locales del dispositivo
+   ============================================================ */
+let currentSourcePriority = 1;
+let playWatchdogTimer = null;
+
+function startPlayWatchdog(track, sourceName) {
+  clearTimeout(playWatchdogTimer);
+  setReels(false); // LOS CARRETES NUNCA GIRAN HASTA QUE EL AUDIO COMIENCE DE VERDAD
+  addDebugLog('▶ Intentando fuente [' + sourceName + ']: ' + (track ? track.title : ''));
+
+  playWatchdogTimer = setTimeout(() => {
+    addDebugLog('⚠️ Timeout 8s en [' + sourceName + ']. No hubo reproducción.');
+    setReels(false);
+    flashTitle('⚠️ Fuente no disponible. Cambiando de fuente...');
+    fallbackToNextSource(track);
+  }, 8000);
 }
 
-function raceStreams(id, ms) {
-  return withTimeout(
-    anyPromise([youtubeNativeStream(id), pipedStream(id), invidiousStream(id), jinaStream(id)]
-      .map(p => p.then(r => { if (!r) throw new Error('x'); return r; }))),
-    ms
-  ).catch(() => null);
-}
-
-/* ============ REPRODUCCIÓN ============ */
-function startStream(url, title, src) {
-  stopSilentKeepAlive();
-  updateMediaSessionMetadata(current, true);
-  syncTvPanelUI(current, true);
-  loadKaraokeForTrack(current);
+function onAudioPlayingConfirmed(sourceName) {
+  clearTimeout(playWatchdogTimer);
+  addDebugLog('✅ AUDIO SONANDO CONFIRMADO desde: [' + sourceName + ']');
+  setReels(true); // CARRETES GIRANDO SOLO AL SONAR
   soundFab.classList.remove('show');
-  const displayName = (src && src.title) || title || 'Mix.Casete';
+  if (sourceName !== 'P3: Preview 30s') {
+    hidePreviewBanner();
+  }
+}
 
-  if (HAS_BRIDGE) {
+function fallbackToNextSource(track) {
+  if (!track) return;
+  clearTimeout(playWatchdogTimer);
+  setReels(false);
+
+  currentSourcePriority++;
+  addDebugLog('Rotando a prioridad ' + currentSourcePriority + ' para: ' + track.title);
+
+  if (currentSourcePriority === 2) {
+    playWithNewPipe(track);
+  } else if (currentSourcePriority === 3) {
+    playWithPreviewFallback(track);
+  } else {
+    addDebugLog('❌ Todas las fuentes agotadas para: ' + track.title);
+    flashTitle('❌ No se pudo reproducir este tema');
+    setReels(false);
+    setTimeout(() => {
+      autoNext();
+    }, 2000);
+  }
+}
+
+function playWithNewPipe(track) {
+  if (window.Android && window.Android.fetchNewPipeStream && track && track.id && !track.id.startsWith('local_')) {
+    startPlayWatchdog(track, 'P2: NewPipe Extractor');
+    showTitle('⏳ Extrayendo NewPipe...');
+    window.Android.fetchNewPipeStream(track.id);
+  } else {
+    fallbackToNextSource(track);
+  }
+}
+
+async function playWithPreviewFallback(track) {
+  startPlayWatchdog(track, 'P3: Deezer/iTunes Preview');
+  showTitle('⏳ Buscando preview...');
+  showPreviewBanner();
+
+  let previewUrl = track.previewUrl || null;
+
+  if (!previewUrl) {
+    const q = encodeURIComponent((track.author || '') + ' ' + (track.title || ''));
+    try {
+      const res = await fetchTimeout('https://api.deezer.com/search?q=' + q + '&limit=1', 4000);
+      if (res.ok) {
+        const d = await res.json();
+        if (d.data && d.data.length > 0 && d.data[0].preview) {
+          previewUrl = d.data[0].preview;
+          addDebugLog('Preview Deezer obtenido');
+        }
+      }
+    } catch (ignored) {}
+
+    if (!previewUrl) {
+      try {
+        const res = await fetchTimeout('https://itunes.apple.com/search?term=' + q + '&entity=song&limit=1', 4000);
+        if (res.ok) {
+          const d = await res.json();
+          if (d.results && d.results.length > 0 && d.results[0].previewUrl) {
+            previewUrl = d.results[0].previewUrl;
+            addDebugLog('Preview iTunes obtenido');
+          }
+        }
+      } catch (ignored) {}
+    }
+  }
+
+  if (previewUrl) {
+    mode = 'stream';
+    setLed('stream');
+    audio.src = previewUrl;
+    audio.load();
+    audio.play().then(() => {
+      onAudioPlayingConfirmed('P3: Preview 30s');
+      flashTitle('⚠️ Reproduciendo fragmento de 30s (Deezer/iTunes)');
+    }).catch(err => {
+      addDebugLog('Error al reproducir preview: ' + err);
+      fallbackToNextSource(track);
+    });
+  } else {
+    fallbackToNextSource(track);
+  }
+}
+
+function playLocalTrack(track) {
+  current = track;
+  currentSourcePriority = 4;
+  startPlayWatchdog(track, 'P4: Archivo Local');
+  showTitle(track.title);
+  setArtist(track.author || 'Local');
+  renderPL();
+  mode = 'native';
+  setLed('native');
+  if (window.Android && window.Android.nativePlay) {
+    window.Android.nativePlay(track.url, track.title, track.author);
+  }
+}
+
+/* ============ CALLBACKS DESDE JAVA / ANDROID ============ */
+window.onNativePlayerEvent = function(event) {
+  addDebugLog('Evento nativo: ' + event);
+  if (event === 'playing') {
+    onAudioPlayingConfirmed('Nativo / ExoPlayer');
+  } else if (event === 'paused') {
+    setReels(false);
+  } else if (event === 'ended') {
+    setReels(false);
+    autoNext();
+  } else if (event.startsWith('stream_expired')) {
+    addDebugLog('Stream nativo expirado/403. Solicitando renovación...');
+    if (current) fallbackToNextSource(current);
+  }
+};
+
+window.onNewPipeStreamLoaded = function(id, streamUrl) {
+  addDebugLog('Stream NewPipe cargado con éxito');
+  if (current && current.id === id) {
     mode = 'native';
     setLed('native');
-    setRealTitle(displayName);
-    if (src && src.author) setArtist(src.author);
-    nativePos = 0;
-    debug('nativePlay → ' + (url ? url.slice(0, 60) : '(URL VACÍA)'));
-    try { Android.nativePlay(url, displayName); } catch (e) { debug('❌ nativePlay lanzó excepción: ' + e); }
-    return;
+    if (window.Android && window.Android.nativePlay) {
+      window.Android.nativePlay(streamUrl, current.title, current.author);
+    }
   }
+};
 
-  audio.src = url;
-  audio.volume = 1.0;
-  mode = 'stream'; setLed('stream');
-  setRealTitle(displayName);
-  if (src && src.author) setArtist(src.author);
-  audio.play().then(() => {
-    debug('🔊 SONANDO');
-  }).catch(() => {
-    debug('Autoplay bloqueado: pulsa 🔊');
-    soundFab.classList.add('show');
-  });
-}
+window.onNewPipeStreamError = function(id, err) {
+  addDebugLog('Fallo NewPipe: ' + err);
+  if (current && current.id === id) {
+    fallbackToNextSource(current);
+  }
+};
 
+window.onLocalAudioLoaded = function(tracks) {
+  if (!tracks || !tracks.length) return;
+  addDebugLog('Cargadas ' + tracks.length + ' pistas locales');
+  tracks.forEach(t => playlist.push(t));
+  savePL();
+  renderPL();
+  flashTitle('📁 ' + tracks.length + ' pistas agregadas');
+  playLocalTrack(tracks[0]);
+};
+
+window.onLoginComplete = function() {
+  addDebugLog('Inicio de sesión en YouTube completado');
+  flashTitle('👤 Sesión de YouTube guardada');
+};
+
+/* ============ REPRODUCCIÓN PRINCIPAL ============ */
 async function playById(id, title, thumb, author) {
   const my = ++playToken;
+  currentSourcePriority = 1;
+  hidePreviewBanner();
+  setReels(false); // Detener carretes de inmediato hasta confirmación real
+
   current = { id, title: title || '', author: author || '', thumb: thumb || '' };
   syncTvPanelUI(current, true);
   loadKaraokeForTrack(current);
-  showTitle('⏳ Cargando cinta...');
+  showTitle('⏳ Cargando ' + (title || 'cinta...'));
   setArtist(author);
   renderPL();
 
-  const overlay = document.getElementById('videoOverlay');
-  if (overlay && overlay.classList.contains('open')) {
-    openCleanVideo(id);
-  }
-  broadcastToTv('play', { id, title: title || '' });
+  // Guardar estado persistente
+  localStorage.setItem('mixcasete_last_id', id);
 
-  const c = cacheGet(id);
-  if (c) {
-    if (c.title && !title) setRealTitle(c.title);
-    if (c.author) setArtist(c.author);
-    if (c.originalCover || (c.cover && !c.cover.includes('ytimg.com'))) {
-      const cov = c.originalCover || c.cover;
-      albumImg.src = cov;
-      current.thumb = cov;
-      syncTvPanelUI(current, true);
-    }
-  } else if (thumb && !thumb.includes('ytimg.com')) {
-    albumImg.src = thumb;
-  }
-  setCoverHQ(id, title || (c && c.title) || '', author || (c && c.author) || '');
-
-  const localItem = playlist.find(t => t.id === id);
-  if (localItem && localItem.local) {
-    debug('Reproduciendo desde almacenamiento local 💾');
-    startStream('file://' + localItem.local, localItem.title || title, localItem);
+  // Si es archivo local
+  if (id.startsWith('local_') || (current && current.isLocal)) {
+    playLocalTrack(current);
     return;
   }
 
-  if (c && c.s && Date.now() - (c.t || 0) < STREAM_TTL) {
-    debug('Stream desde cache');
-    startStream(c.s, c.title || title, c);
-    return;
+  // Sincronizar con pantalla externa si está conectada
+  if (window.Android && window.Android.isTvConnected && window.Android.isTvConnected()) {
+    window.Android.showVideoOverlay(id, 0);
   }
 
-  if (HAS_BRIDGE) {
-    debug('Java: extrayendo audio de YouTube...');
-    const s = await bridgeGetStream(id);
-    if (my !== playToken) return;
-    if (s && s.url) {
-      cacheSet(id, { s: s.url, title: s.title || title, author: s.author || '' });
-      startStream(s.url, s.title || title, s);
+  // PRIORIDAD 1: YouTube IFrame oficial
+  startPlayWatchdog(current, 'P1: YouTube IFrame');
+
+  if (typeof ytPlayerInstance !== 'undefined' && ytPlayerInstance && ytPlayerInstance.loadVideoById) {
+    try {
+      mode = 'bridge';
+      setLed('bridge');
+      ytPlayerInstance.loadVideoById(id);
+      ytPlayerInstance.playVideo();
       return;
+    } catch (e) {
+      addDebugLog('Error al llamar loadVideoById: ' + e);
+      fallbackToNextSource(current);
     }
+  } else {
+    // Si la API de YouTube aún está inicializando
+    loadDirectWebIframe(id);
   }
-
-  // En entorno Web (preview/navegador): reproducir de inmediato vía Web Player para preservar el gesto de usuario y tener audio instantáneo
-  if (!IS_REAL_ANDROID) {
-    debug('Modo Web: reproduciendo de inmediato vía Web Player 🔊');
-    fbLoad(id);
-    enrichMeta(id, title).then(meta => { if (my === playToken) setArtist(meta.author || author); });
-    return;
-  }
-
-  debug('Buscando stream web...');
-  const src = await raceStreams(id, 12000);
-  if (my !== playToken) return;
-  if (src) {
-    cacheSet(id, { s: src.url, title: src.title || title, author: src.author || '' });
-    startStream(src.url, src.title || title, src);
-    return;
-  }
-
-  debug('Sin stream → WebView de respaldo');
-  fbLoad(id);
-  enrichMeta(id, title).then(meta => { if (my === playToken) setArtist(meta.author || author); });
 }
 
 function autoNext() {
   setReels(false);
+  hidePreviewBanner();
   if (!playlist || !playlist.length) {
     setLed('none');
     showTitle('⏹ Fin de la cinta');
@@ -5369,14 +5679,13 @@ function autoNext() {
   if (idx >= 0 && idx < playlist.length - 1) {
     nextTrack = playlist[idx + 1];
   } else if (idx === playlist.length - 1) {
-    // Reiniciar ciclo en bucle desde el primer tema de la lista
-    nextTrack = playlist[0];
+    nextTrack = playlist[0]; // Bucle continuo
   } else if (idx === -1 && playlist.length > 0) {
     nextTrack = playlist[0];
   }
 
   if (nextTrack) {
-    debug('⏩ Siguiente tema automático: ' + nextTrack.title);
+    addDebugLog('⏩ Siguiente pista: ' + nextTrack.title);
     playById(nextTrack.id, nextTrack.title, nextTrack.thumb, nextTrack.author);
   } else {
     setLed('none');

@@ -7,11 +7,11 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.mixcasete.app.ktnagq"
+        applicationId "com.mixcasete.app"
         minSdk 21
         targetSdk 34
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
     }
 
     // Asegurar keystore debug si existe base64 o usar fallback estándar
@@ -46,7 +46,11 @@ android {
             }
         }
         release {
+            debuggable false
             minifyEnabled false
+            if (customKeystore.exists()) {
+                signingConfig signingConfigs.debugConfig
+            }
         }
     }
 
@@ -63,6 +67,11 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.media3:media3-exoplayer:1.3.1'
+    implementation 'androidx.media3:media3-session:1.3.1'
+    implementation 'androidx.media3:media3-common:1.3.1'
     implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.24.6'
 }
 
